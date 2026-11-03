@@ -2,7 +2,7 @@
 
 **Tagline:** Spend rails for AI shopping agents - policy-checked, PayPal-approved, fully audited.
 
-**Links:** Repo: `<public GitHub URL>` - Live demo: `<Render URL>` - Video: `<YouTube URL>` (see DEMO_SCRIPT.md)
+**Links:** Repo: https://github.com/wakkaduu/Mandate - Live demo: `<Render URL>` - Video: `<YouTube URL>` (see DEMO_SCRIPT.md)
 
 **Built with:** PayPal REST (Orders v2, Payments refund, Webhooks), PayPal JS SDK, Claude (Anthropic SDK, tool use), Model Context Protocol (MCP), AG Grid Community, Node.js, Express, SQLite, Render.
 

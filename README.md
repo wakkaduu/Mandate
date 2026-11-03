@@ -34,7 +34,7 @@ Budget, per-purchase cap, allowed categories, **pace limit** (max purchase reque
 Requirements: Node 22.13+ (tested on Node 24).
 
 ```bash
-git clone <this repo> && cd <repo>
+git clone https://github.com/wakkaduu/Mandate.git && cd Mandate
 npm install
 cp .env.example .env        # then fill in values (see below)
 npm start                   # http://localhost:3000

@@ -25,7 +25,7 @@ Everything lands in an AG Grid ledger with a complete audit trail: policy decisi
 - **Agent**: a Claude tool-use loop with `search_catalog`, `propose_purchase` and `get_mandate`. A deterministic offline agent and an **MCP server** (Streamable HTTP, bearer-token auth, tested with the official MCP SDK client) share the same tools and gate, so the app always demos and any outside agent can use the rails.
 - **PayPal**: orders are created server-side from catalog prices with `PayPal-Request-Id` idempotency and a unique `invoice_id`; the JS SDK button hands the server-created order id to PayPal; capture is server-side and the captured amount/currency is re-verified; refunds use the captures API; webhooks are verified with PayPal's `verify-webhook-signature` against the raw request bytes, deduplicated by event id, and can finish a capture the browser never reported.
 - **Ledger**: AG Grid with sorting/filtering over purchases and the audit trail.
-- **Stack**: Node + Express, built-in `node:sqlite`, vanilla JS front end, Render free tier. 23 automated tests cover the policy, the full payment lifecycle against a PayPal simulator, webhooks, and the Claude tool loop.
+- **Stack**: Node + Express, built-in `node:sqlite`, vanilla JS front end, Render free tier. 34 automated tests cover the policy, catalog search, the full payment lifecycle against a PayPal simulator, webhooks, the Claude tool loop and the MCP server (driven by the official MCP client).
 
 ## Challenges
 - Making "the AI can't overspend" a *guarantee* instead of a prompt: the cap, budget and category rules run server-side after the model speaks, and reservations are taken inside a transaction so concurrent proposals cannot both fit into the same remaining budget.

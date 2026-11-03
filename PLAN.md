@@ -73,7 +73,7 @@ Purchase state machine: `reserving -> pending -> capturing -> captured -> (refun
 | When | Milestone | Exit check |
 |---|---|---|
 | Nov 3 | M1 vertical slice: chat -> policy -> PayPal order -> approve -> capture -> ledger (simulator) | Integration tests green |
-| Nov 3 | M2 failure paths, webhooks, refund, Claude loop, AG Grid, UI polish | 22 tests green, UI walkthrough clean |
+| Nov 3 | M2 failure paths, webhooks, refund, Claude loop, AG Grid, UI polish | 34 tests green (grew through the day), UI walkthrough clean |
 | Nov 4 | M3 **Run against the real PayPal sandbox** with sandbox credentials; fix any API drift | Full demo flow with sandbox buyer account |
 | Nov 5 | M4 Deploy to Render, configure webhook + `PAYPAL_WEBHOOK_ID`, rerun demo on the live URL | Live URL demo passes |
 | Nov 6-7 | M5 Screenshots, README/SUBMISSION polish, record + edit video (<3 min) | Video uploaded public on YouTube |

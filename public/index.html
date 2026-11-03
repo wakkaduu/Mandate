@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mandate - spend rails for AI shopping agents</title>
+  <meta name="description" content="Give an AI agent a spending mandate. Every purchase is policy-checked, then settled through PayPal with one-tap human approval.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b5cff'/%3E%3Cpath d='M9 22V10l7 8 7-8v12' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0b5cff"/><path d="M9 22V10l7 8 7-8v12" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>
+        <h1>Mandate</h1>
+        <p>Spend rails for AI shopping agents, settled by PayPal</p>
+      </div>
+    </div>
+    <div class="top-right">
+      <span class="pill" id="pill-paypal" title="PayPal environment">PayPal …</span>
+      <span class="pill" id="pill-agent" title="Agent brain">Agent …</span>
+      <button class="btn ghost" id="btn-reset" title="Clear this demo session and restore the default mandate">Reset demo</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <ol class="steps" aria-label="How Mandate works">
+    <li><b>1</b><span><strong>Agent proposes</strong> what to buy</span></li>
+    <li><b>2</b><span><strong>Policy checks</strong> cap, budget, category</span></li>
+    <li><b>3</b><span><strong>You approve</strong> with PayPal</span></li>
+    <li><b>4</b><span><strong>Server captures</strong> and audits it</span></li>
+  </ol>
+
+  <main class="grid">
+    <section class="card" aria-labelledby="h-mandate">
+      <div class="card-head">
+        <h2 id="h-mandate">Mandate</h2>
+        <button class="btn small ghost" id="btn-edit">Edit</button>
+      </div>
+      <div id="mandate"></div>
+    </section>
+
+    <section class="card chat" aria-labelledby="h-agent">
+      <div class="card-head"><h2 id="h-agent">Shopping agent</h2><span class="muted" id="agent-note"></span></div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div class="chips" id="chips"></div>
+      <form id="chat-form" class="chat-form" autocomplete="off">
+        <input id="chat-input" type="text" maxlength="600" placeholder="e.g. a desk lamp under $40 and a mechanical keyboard" aria-label="Message the shopping agent">
+        <button class="btn primary" id="chat-send" type="submit">Send</button>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="h-approvals">
+      <div class="card-head"><h2 id="h-approvals">Approvals</h2><span class="muted" id="approvals-count"></span></div>
+      <div id="approvals" class="approvals"></div>
+    </section>
+  </main>
+
+  <section class="card ledger" aria-labelledby="h-ledger">
+    <div class="card-head">
+      <h2 id="h-ledger">Ledger</h2>
+      <div class="tabs" role="tablist">
+        <button role="tab" class="tab active" data-tab="purchases" aria-selected="true">Purchases</button>
+        <button role="tab" class="tab" data-tab="audit" aria-selected="false">Audit trail</button>
+      </div>
+    </div>
+    <div id="grid-purchases" class="grid-box" role="region" aria-label="Purchases ledger"></div>
+    <div id="grid-audit" class="grid-box" role="region" aria-label="Audit trail" hidden></div>
+  </section>
+
+  <dialog id="dlg-edit">
+    <form method="dialog" id="form-edit">
+      <h3>Edit mandate</h3>
+      <label>Name <input name="name" maxlength="60" required></label>
+      <label>Total budget (USD) <input name="budget" type="number" min="1" max="10000" step="1" required></label>
+      <label>Per-purchase cap (USD) <input name="cap" type="number" min="1" max="10000" step="1" required></label>
+      <fieldset><legend>Allowed categories</legend><div id="edit-cats" class="cat-boxes"></div></fieldset>
+      <p class="error" id="edit-error" hidden></p>
+      <div class="dlg-actions">
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" id="edit-save" value="save">Save mandate</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="/vendor/ag-grid/ag-grid-community.min.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

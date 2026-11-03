@@ -16,8 +16,10 @@ Stable `code` values: `BAD_INPUT`, `NOT_FOUND`, `BAD_STATE`, `RATE_LIMITED`, `BU
 | `GET /api/config` | Runtime flags for the UI | `paypalMode`, `paypalClientId` (public), `paypalConfigured`, `agentMode`, `model`, `webhooks` |
 | `GET /api/state` | Everything the UI renders | `mandate`, `purchases[]`, `audit[]` (newest first, max 300), `messages[]`, `categories[]` |
 | `GET /api/products` | Catalog | |
-| `PUT /api/mandate` | Edit mandate | Body: `name`, `budget_cents` (100..1,000,000), `per_item_cap_cents` (100..budget), `categories[]` (subset of catalog categories). `400 BAD_INPUT` otherwise |
-| `POST /api/chat` | Talk to the agent | Body `{message}` (<=600 chars). Returns `{reply, mode:"claude"|"offline"}`. `429` when rate-limited (12/min/session, 400/h global) or the agent is busy |
+| `PUT /api/mandate` | Edit mandate | Body: `name`, `budget_cents` (100..1,000,000), `per_item_cap_cents` (100..budget), `categories[]` (subset of catalog categories), `max_per_hour` (1..100 or `null` = unlimited), `expires_at` (future epoch ms within a year, or `null`). `400 BAD_INPUT` otherwise |
+| `GET/POST/DELETE /api/connect` | MCP connection for external agents | `GET` -> `{url, connected}`; `POST` creates a token (plaintext returned **once**, replaces any old one) -> `{url, token, connected}`; `DELETE` revokes |
+| `POST /mcp` | MCP server (Streamable HTTP, JSON responses) | `Authorization: Bearer mnd_...`. Methods: `initialize`, `ping`, `tools/list`, `tools/call` (`search_catalog`, `propose_purchase`, `get_mandate`). `401` without a valid token, `429` over 60 req/min, `GET`/`DELETE` -> `405` |
+| `POST /api/chat` | Talk to the agent | Body `{message}` (<=600 chars). Returns `{reply, mode:"claude"|"offline", steps:[{tool, ok, text}]}` (the agent activity trace, also persisted on each assistant message as `trace`). `429` when rate-limited (12/min/session, 400/h global) or the agent is busy |
 | `POST /api/purchases/:id/capture` | Capture after PayPal approval | Idempotent. `outcome`: `captured`, `already_captured`, `declined`, `pending_review`, `in_progress`, `failed`. `409 ORDER_NOT_APPROVED` if the buyer has not approved; `502` on PayPal/network errors (state returns to `pending`, safe to retry) |
 | `POST /api/purchases/:id/cancel` | Dismiss a pending purchase (releases budget) | |
 | `POST /api/purchases/:id/refund` | Refund a captured purchase | Idempotent |
@@ -30,4 +32,4 @@ Stable `code` values: `BAD_INPUT`, `NOT_FOUND`, `BAD_STATE`, `RATE_LIMITED`, `BU
 
 `status`: `reserving` -> `pending` -> `capturing` -> `captured` -> (`refunding` ->) `refunded`; exits: `blocked` (policy, never reached PayPal), `declined`, `cancelled`, `expired`, `failed`.
 
-Policy codes in `reason`: `UNKNOWN_PRODUCT`, `BAD_QUANTITY`, `CATEGORY_NOT_ALLOWED`, `DUPLICATE`, `OVER_ITEM_CAP`, `OVER_BUDGET`, `PAYPAL_ERROR`.
+Policy codes in `reason`: `UNKNOWN_PRODUCT`, `BAD_QUANTITY`, `MANDATE_EXPIRED`, `CATEGORY_NOT_ALLOWED`, `DUPLICATE`, `OVER_ITEM_CAP`, `OVER_BUDGET`, `OVER_PACE`, `PAYPAL_ERROR`.

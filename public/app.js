@@ -29,8 +29,8 @@ const SUGGESTIONS = [
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(path, {
     method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : (method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
-    body: body !== undefined ? JSON.stringify(body) : (method === 'POST' ? '{}' : undefined),
+    headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
+    body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
     credentials: 'same-origin',
   });
   let data = {};
@@ -128,7 +128,7 @@ async function simple(path, okMsg) {
 // ------------------------------------------------------------------ rendering
 let approvalsSig = '';
 
-const CHECKS = [['CATEGORY_NOT_ALLOWED', 'Category'], ['DUPLICATE', 'Not a duplicate'], ['OVER_ITEM_CAP', 'Under cap'], ['OVER_BUDGET', 'Within budget']];
+const CHECKS = [['MANDATE_EXPIRED', 'Active'], ['CATEGORY_NOT_ALLOWED', 'Category'], ['DUPLICATE', 'Not a duplicate'], ['OVER_ITEM_CAP', 'Under cap'], ['OVER_BUDGET', 'Within budget'], ['OVER_PACE', 'Pace']];
 const splitReason = (reason) => {
   const m = /^([A-Z_]+): (.*)$/.exec(reason ?? '');
   return m ? { code: m[1], text: m[2] } : { code: null, text: reason ?? '' };
@@ -158,16 +158,29 @@ function renderMandate(m) {
       h('span', {}, h('b', { style: 'background:#f5a623' }), `Awaiting approval ${usd(held)}`)),
     h('div', { class: 'rules' },
       h('div', {}, h('span', {}, 'Per-purchase cap'), h('b', {}, usd(m.per_item_cap_cents))),
+      h('div', {}, h('span', {}, 'Pace'), h('b', {}, m.max_per_hour ? `${m.max_per_hour} requests / hour` : 'Unlimited')),
+      h('div', {}, h('span', {}, 'Expires'), m.expired ? h('b', { style: 'color:var(--bad)' }, 'Expired') : h('b', {}, m.expires_at ? new Date(m.expires_at).toLocaleDateString() : 'Never')),
       h('div', {}, h('span', {}, 'Allowed'), h('span', { class: 'cats' }, m.categories.length ? m.categories.map((c) => h('span', { class: 'cat' }, c)) : h('span', { class: 'muted' }, 'nothing'))),
       h('div', {}, h('span', {}, 'Settlement'), h('b', {}, 'PayPal, human-approved'))),
   );
 }
 
+let msgSig = '';
 function renderMessages(msgs) {
   const box = $('messages');
+  const sig = JSON.stringify(msgs);
+  if (sig === msgSig) return; // keep open <details> / scroll position stable across polling refreshes
+  msgSig = sig;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
   const list = msgs.length ? msgs : [{ role: 'assistant', content: 'Hi! I shop within your mandate. Tell me what you need and I will request each item. Anything outside the rules gets blocked before it ever reaches PayPal.' }];
-  box.replaceChildren(...list.map((m) => h('div', { class: `msg ${m.role}` }, m.content)));
+  box.replaceChildren(...list.map((m) => {
+    const bubble = h('div', { class: `msg ${m.role}` }, m.content);
+    if (m.role !== 'assistant' || !m.trace?.length) return bubble;
+    return h('div', { class: 'msg-wrap' }, bubble,
+      h('details', { class: 'trace' },
+        h('summary', {}, `Agent activity (${m.trace.length} step${m.trace.length === 1 ? '' : 's'})`),
+        h('ol', {}, m.trace.map((t) => h('li', { class: t.ok ? '' : 'fail' }, t.text)))));
+  }));
   if (atBottom || msgs.length < 3) box.scrollTop = box.scrollHeight;
 }
 
@@ -293,6 +306,8 @@ function openEditor() {
   f.elements.name.value = m.name;
   f.elements.budget.value = m.budget_cents / 100;
   f.elements.cap.value = m.per_item_cap_cents / 100;
+  f.elements.pace.value = m.max_per_hour ?? '';
+  f.elements.expires.value = m.expires_at ? new Date(m.expires_at).toISOString().slice(0, 10) : '';
   $('edit-cats').replaceChildren(...state.categories.map((c) => h('label', {}, h('input', { type: 'checkbox', value: c, checked: m.categories.includes(c) }), c)));
   $('edit-error').hidden = true;
   $('dlg-edit').showModal();
@@ -307,6 +322,9 @@ async function saveEditor(ev) {
       budget_cents: Math.round(Number(f.elements.budget.value) * 100),
       per_item_cap_cents: Math.round(Number(f.elements.cap.value) * 100),
       categories: [...$('edit-cats').querySelectorAll('input:checked')].map((i) => i.value),
+      max_per_hour: f.elements.pace.value === '' ? null : Number(f.elements.pace.value),
+      // end of the chosen day, local time
+      expires_at: f.elements.expires.value === '' ? null : new Date(`${f.elements.expires.value}T23:59:59`).getTime(),
     } });
     $('dlg-edit').close();
     toast('Mandate updated.');
@@ -315,6 +333,33 @@ async function saveEditor(ev) {
     $('edit-error').textContent = e.message;
     $('edit-error').hidden = false;
   }
+}
+
+// ------------------------------------------------------------------ connect an agent (MCP)
+async function openConnect() {
+  const info = await api('/api/connect');
+  $('connect-empty').hidden = false;
+  $('connect-ready').hidden = true;
+  $('btn-gen').textContent = info.connected ? 'Generate a new token (revokes the old one)' : 'Generate connection token';
+  $('btn-revoke').hidden = !info.connected;
+  $('dlg-connect').showModal();
+}
+
+async function generateToken() {
+  try {
+    const r = await api('/api/connect', { method: 'POST' });
+    $('c-url').value = r.url;
+    $('c-token').value = r.token;
+    $('c-cmd').value = `claude mcp add --transport http mandate ${r.url} --header "Authorization: Bearer ${r.token}"`;
+    $('connect-empty').hidden = true;
+    $('connect-ready').hidden = false;
+    $('btn-revoke').hidden = false;
+    await refresh();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function revokeToken() {
+  try { await api('/api/connect', { method: 'DELETE' }); $('dlg-connect').close(); toast('External agent access revoked.'); await refresh(); } catch (e) { toast(e.message, true); }
 }
 
 // ------------------------------------------------------------------ boot
@@ -336,6 +381,14 @@ async function boot() {
   $('chips').replaceChildren(...SUGGESTIONS.map((s) => h('button', { class: 'chip', type: 'button', onclick: () => send(s) }, s)));
   $('chat-form').addEventListener('submit', (e) => { e.preventDefault(); send(); });
   $('btn-edit').addEventListener('click', openEditor);
+  $('btn-connect').addEventListener('click', () => openConnect().catch((e) => toast(e.message, true)));
+  $('btn-gen').addEventListener('click', generateToken);
+  $('btn-revoke').addEventListener('click', revokeToken);
+  $('btn-close-connect').addEventListener('click', () => $('dlg-connect').close());
+  document.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+    const el = $(b.dataset.copy);
+    try { await navigator.clipboard.writeText(el.value); toast('Copied.'); } catch { el.select(); toast('Press Ctrl+C to copy.'); }
+  }));
   $('edit-save').addEventListener('click', saveEditor);
   $('btn-reset').addEventListener('click', async () => {
     if (!confirm('Reset this demo session? Purchases, history and mandate are restored to defaults.')) return;
@@ -352,7 +405,7 @@ async function boot() {
 
   await refresh();
   // Picks up webhook-driven changes (e.g. capture completed server-side) without a manual reload.
-  setInterval(() => { if (!document.hidden) refresh(); }, 8000);
+  setInterval(() => { if (!document.hidden) refresh(); }, 5000);
 }
 
 boot().catch((e) => { console.error(e); toast('Failed to start the app.', true); });

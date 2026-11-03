@@ -20,4 +20,5 @@ export const DEFAULT_MANDATE = {
   budget_cents: 30000,
   per_item_cap_cents: 12000,
   categories: ['office', 'electronics', 'home'],
+  max_per_hour: 6,
 };

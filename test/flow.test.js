@@ -216,3 +216,32 @@ test('every error uses one envelope { error: { code, message, requestId } } and 
   assert.equal(res.headers.get('x-request-id'), 'trace-abc-12345');
   assert.deepEqual(await res.json(), { ok: true });
 });
+
+// ---------------------------------------------------------------- new mandate rules + agent trace
+test('pace limit blocks a runaway agent; expiry blocks everything; both are editable', async () => {
+  const c = client(app.base);
+  assert.equal((await c.put('/api/mandate', { max_per_hour: 2 })).status, 200);
+  await chatAs(c, 'a felt desk mat');
+  await chatAs(c, 'a pothos plant');
+  await chatAs(c, 'a vertical ergonomic mouse');
+  let s = await state(c);
+  assert.equal(byProduct(s, 'mouse-ergo').status, 'blocked');
+  assert.match(byProduct(s, 'mouse-ergo').reason, /OVER_PACE/);
+  assert.equal(s.mandate.committed_cents, 2400 + 1800);
+
+  assert.equal((await c.put('/api/mandate', { max_per_hour: null })).body.mandate.max_per_hour, null);
+  assert.equal((await c.put('/api/mandate', { max_per_hour: 0 })).status, 400);
+  assert.equal((await c.put('/api/mandate', { expires_at: Date.now() - 1000 })).status, 400);
+  assert.equal((await c.put('/api/mandate', { expires_at: Date.now() + 86400_000 })).status, 200);
+});
+
+test('chat returns an agent activity trace that is persisted with the message', async () => {
+  const c = client(app.base);
+  const r = await chatAs(c, 'a desk lamp under $40 and a 4K monitor');
+  assert.ok(r.body.steps.length >= 4);
+  assert.ok(r.body.steps.some((x) => x.tool === 'search_catalog' && x.ok));
+  assert.ok(r.body.steps.some((x) => x.tool === 'propose_purchase' && x.ok === false && /OVER_ITEM_CAP/.test(x.text)));
+  const s = await state(c);
+  const last = s.messages.filter((m) => m.role === 'assistant').at(-1);
+  assert.deepEqual(last.trace, r.body.steps);
+});

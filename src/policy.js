@@ -9,10 +9,10 @@ export const MAX_QTY = 5;
 export const COMMITTED_STATUSES = ['reserving', 'pending', 'capturing', 'captured'];
 
 /**
- * @param {{budget_cents:number, per_item_cap_cents:number, categories:string[]}} mandate
+ * @param {{budget_cents:number, per_item_cap_cents:number, categories:string[], expires_at?:number|null, max_per_hour?:number|null}} mandate
  * @param {{id:string, category:string, price_cents:number, name:string}|undefined} product
  * @param {number} qty
- * @param {{committed_cents:number, open_same_product:boolean}} ctx
+ * @param {{committed_cents:number, open_same_product:boolean, now?:number, recent_count?:number}} ctx
  * @returns {{ok:true, amount_cents:number} | {ok:false, code:string, reason:string, amount_cents?:number}}
  */
 export function evaluate(mandate, product, qty, ctx) {
@@ -23,6 +23,9 @@ export function evaluate(mandate, product, qty, ctx) {
   const amount = product.price_cents * qty;
   const fail = (code, reason) => ({ ok: false, code, reason, amount_cents: amount });
 
+  if (mandate.expires_at && (ctx.now ?? Date.now()) > mandate.expires_at) {
+    return fail('MANDATE_EXPIRED', 'This mandate has expired; the agent no longer has spending authority.');
+  }
   if (!mandate.categories.includes(product.category)) {
     return fail('CATEGORY_NOT_ALLOWED',
       `Category "${product.category}" is outside this mandate (allowed: ${mandate.categories.join(', ') || 'none'}).`);
@@ -38,6 +41,9 @@ export function evaluate(mandate, product, qty, ctx) {
   if (amount > remaining) {
     return fail('OVER_BUDGET',
       `${money(amount)} exceeds the remaining budget of ${money(Math.max(remaining, 0))}.`);
+  }
+  if (mandate.max_per_hour && (ctx.recent_count ?? 0) >= mandate.max_per_hour) {
+    return fail('OVER_PACE', `The agent already made ${ctx.recent_count} purchase requests in the last hour (limit ${mandate.max_per_hour}/hour).`);
   }
   return { ok: true, amount_cents: amount };
 }

@@ -81,6 +81,7 @@ export function openDb(file = config.dbPath) {
   db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 3000;');
   db.exec(SCHEMA);
+  migrate(db);
   seedProducts(db);
   pruneOldSessions(db);
   return db;
@@ -93,6 +94,17 @@ export function closeDb() {
 
 export function getDb() {
   return db ?? openDb();
+}
+
+/** Additive, idempotent migrations (works on fresh and existing databases). */
+function migrate(d) {
+  const has = (table, col) => d.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  const add = (table, col, ddl) => { if (!has(table, col)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); };
+  add('mandates', 'expires_at', 'INTEGER');                     // epoch ms, NULL = never expires
+  add('mandates', 'max_per_hour', 'INTEGER DEFAULT 6');         // purchase-request pace limit, NULL = unlimited
+  add('sessions', 'mcp_token_hash', 'TEXT');                    // sha256 of the MCP bearer token (token itself is never stored)
+  add('messages', 'trace', 'TEXT');                             // JSON: the agent's tool steps for that reply
+  d.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_mcp ON sessions(mcp_token_hash) WHERE mcp_token_hash IS NOT NULL');
 }
 
 function seedProducts(d) {

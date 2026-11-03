@@ -17,5 +17,8 @@
     "@anthropic-ai/sdk": "^1.4.0",
     "ag-grid-community": "^36.2.0",
     "express": "^5.3.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }

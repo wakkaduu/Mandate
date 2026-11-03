@@ -28,3 +28,15 @@ test('allows exactly the remaining budget', () => {
   assert.equal(evaluate(mandate, lamp, 1, ctx({ committed_cents: 26600 })).ok, true);
 });
 test('blocks duplicates', () => assert.equal(evaluate(mandate, lamp, 1, ctx({ open_same_product: true })).code, 'DUPLICATE'));
+
+test('blocks an expired mandate before anything else', () => {
+  const m = { ...mandate, expires_at: 1000 };
+  assert.equal(evaluate(m, lamp, 1, ctx({ now: 2000 })).code, 'MANDATE_EXPIRED');
+  assert.equal(evaluate(m, lamp, 1, ctx({ now: 500 })).ok, true);
+});
+test('enforces the hourly pace limit; null means unlimited', () => {
+  const m = { ...mandate, max_per_hour: 3 };
+  assert.equal(evaluate(m, lamp, 1, ctx({ recent_count: 2 })).ok, true);
+  assert.equal(evaluate(m, lamp, 1, ctx({ recent_count: 3 })).code, 'OVER_PACE');
+  assert.equal(evaluate({ ...mandate, max_per_hour: null }, lamp, 1, ctx({ recent_count: 99 })).ok, true);
+});

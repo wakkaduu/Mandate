@@ -1,14 +1,13 @@
-// The shopping agent. Two interchangeable brains share the same tools and the same policy gate:
+// The shopping agent. Two interchangeable brains share the same tools (src/tools.js) and the same policy gate:
 //   1. Claude (Anthropic SDK tool-use loop) when ANTHROPIC_API_KEY is set
 //   2. A deterministic offline agent, so the app is always demoable (no key, no network, no cost)
-// Neither can move money: both only call proposePurchase(), which the policy engine gates and which
+// Neither can move money: both only call propose_purchase, which the policy engine gates and which
 // ends in a PayPal order that a human must approve.
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.js';
-import {
-  searchProducts, proposePurchase, getMandate, addMessage, listMessages,
-} from './purchases.js';
+import { searchProducts, getMandate, addMessage, listMessages } from './purchases.js';
 import { money } from './policy.js';
+import { TOOLS, runTool } from './tools.js';
 
 const MAX_TURNS = 8;
 let client;
@@ -16,7 +15,7 @@ const anthropic = () => (client ??= new Anthropic({ apiKey: config.anthropic.api
 
 export const agentMode = () => (config.anthropic.apiKey ? 'claude' : 'offline');
 
-const SYSTEM = `You are the shopping agent inside Mandate. A human has given you a spending MANDATE (budget, per-purchase cap, allowed categories) and you shop on their behalf.
+const SYSTEM = `You are the shopping agent inside Mandate. A human has given you a spending MANDATE (budget, per-purchase cap, allowed categories, pace limit, optional expiry) and you shop on their behalf.
 
 How you work:
 - Use search_catalog to find products, then propose_purchase to request each purchase you decide on.
@@ -26,66 +25,8 @@ How you work:
 - Always include a one-sentence rationale when proposing (why this item for this user).
 - Keep replies short and friendly: a few lines, plain text, no markdown tables. State what you proposed, what was blocked, and what the human needs to approve next.`;
 
-const TOOLS = [
-  {
-    name: 'search_catalog',
-    description: 'Search the product catalog. Returns up to 8 products with id, name, merchant, category, price in USD.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Keywords, e.g. "mechanical keyboard"' },
-        max_price_usd: { type: 'number', description: 'Optional maximum unit price in USD' },
-        category: { type: 'string', description: 'Optional category filter (office, electronics, furniture, home)' },
-      },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'propose_purchase',
-    description: 'Request a purchase. It is checked against the mandate; if allowed, a PayPal order is created for the human to approve.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        product_id: { type: 'string' },
-        qty: { type: 'integer', description: 'Quantity, default 1' },
-        rationale: { type: 'string', description: 'One sentence: why this item' },
-      },
-      required: ['product_id', 'rationale'],
-    },
-  },
-  {
-    name: 'get_mandate',
-    description: 'Get the mandate limits and the remaining budget.',
-    input_schema: { type: 'object', properties: {} },
-  },
-];
-
-const productView = (p) => ({ id: p.id, name: p.name, merchant: p.merchant, category: p.category, price_usd: p.price_cents / 100, description: p.description });
-
-async function runTool(sid, name, input) {
-  try {
-    if (name === 'search_catalog') {
-      const max = Number.isFinite(input?.max_price_usd) ? Math.round(input.max_price_usd * 100) : undefined;
-      return { products: searchProducts({ query: String(input?.query ?? ''), max_price_cents: max, category: input?.category }).map(productView) };
-    }
-    if (name === 'propose_purchase') {
-      const res = await proposePurchase(sid, { product_id: input?.product_id, qty: input?.qty ?? 1, rationale: input?.rationale });
-      return res.allowed
-        ? { status: 'awaiting_human_approval', product: res.purchase.product_name, amount_usd: res.purchase.amount }
-        : { status: 'blocked', code: res.code, reason: res.reason, product: res.purchase.product_name };
-    }
-    if (name === 'get_mandate') {
-      const m = getMandate(sid);
-      return { budget_usd: m.budget_cents / 100, per_purchase_cap_usd: m.per_item_cap_cents / 100, allowed_categories: m.categories, remaining_usd: m.remaining_cents / 100 };
-    }
-    return { error: `Unknown tool ${name}` };
-  } catch (e) {
-    return { error: e.message };
-  }
-}
-
 // ------------------------------------------------------------------ Claude brain
-async function runClaude(sid, userText) {
+async function runClaude(sid, userText, steps) {
   const history = listMessages(sid, 12).map((m) => ({ role: m.role, content: m.content }));
   const messages = [...history, { role: 'user', content: userText }];
 
@@ -107,8 +48,9 @@ async function runClaude(sid, userText) {
     const results = [];
     for (const block of response.content) {
       if (block.type !== 'tool_use') continue;
-      const out = await runTool(sid, block.name, block.input);
-      results.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out), ...(out.error ? { is_error: true } : {}) });
+      const { result, step } = await runTool(sid, block.name, block.input);
+      steps.push(step);
+      results.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result), ...(result.error ? { is_error: true } : {}) });
     }
     messages.push({ role: 'user', content: results });
   }
@@ -117,7 +59,7 @@ async function runClaude(sid, userText) {
 
 // ------------------------------------------------------------------ Offline brain
 const NUM_WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5 };
-const STOP = new Set(['i', 'need', 'want', 'get', 'buy', 'me', 'please', 'a', 'an', 'the', 'some', 'for', 'my', 'to', 'and', 'of', 'new', 'under', 'below', 'less', 'than', 'max', 'up', 'about', 'around', 'set', 'up', 'with', 'also', 'order', 'purchase', 'find', 'pick', 'grab', 'that', 'is', 'cheap', 'good', 'nice', 'one', 'two', 'three']);
+const STOP = new Set(['i', 'need', 'want', 'get', 'buy', 'me', 'please', 'a', 'an', 'the', 'some', 'for', 'my', 'to', 'and', 'of', 'new', 'under', 'below', 'less', 'than', 'max', 'up', 'about', 'around', 'set', 'with', 'also', 'order', 'purchase', 'find', 'pick', 'grab', 'that', 'is', 'cheap', 'good', 'nice', 'one', 'two', 'three']);
 
 export function parseRequest(text) {
   const parts = String(text)
@@ -141,35 +83,36 @@ export function parseRequest(text) {
   return wants;
 }
 
-async function runOffline(sid, userText) {
+async function runOffline(sid, userText, steps) {
   const wants = parseRequest(userText);
   if (!wants.length) {
     return 'Tell me what to get, e.g. "a desk lamp under $40 and a mechanical keyboard". I will check each item against your mandate and queue the allowed ones for PayPal approval.';
   }
+  const call = async (name, input) => { const r = await runTool(sid, name, input); steps.push(r.step); return r; };
   const lines = [];
   let proposed = 0;
   let blocked = 0;
   let failed = 0;
   for (const w of wants) {
-    const found = searchProducts({ query: w.query, max_price_cents: w.maxPrice });
+    const found = (await call('search_catalog', { query: w.query, max_price_usd: w.maxPrice ? w.maxPrice / 100 : undefined })).result.products;
     if (!found.length) {
-      const anyPrice = searchProducts({ query: w.query });
-      lines.push(anyPrice.length
-        ? `• ${w.query}: nothing under ${money(w.maxPrice)} (cheapest is ${anyPrice[0].name} at ${money(anyPrice[0].price_cents)}).`
+      const any = (await call('search_catalog', { query: w.query })).result.products;
+      lines.push(any.length
+        ? `• ${w.query}: nothing under ${money(w.maxPrice)} (cheapest is ${any[0].name} at ${money(Math.round(any[0].price_usd * 100))}).`
         : `• ${w.query}: I could not find that in the catalog.`);
       continue;
     }
     const pick = found[0];
-    const res = await proposePurchase(sid, { product_id: pick.id, qty: w.qty, rationale: `Matches "${w.query}"${w.maxPrice ? ` under ${money(w.maxPrice)}` : ''}; best fit in the catalog.` });
-    if (res.allowed) {
+    const r = await call('propose_purchase', { product_id: pick.id, qty: w.qty, rationale: `Matches "${w.query}"${w.maxPrice ? ` under ${money(w.maxPrice)}` : ''}; best fit in the catalog.` });
+    if (r.result.status === 'awaiting_human_approval') {
       proposed++;
-      lines.push(`• ${pick.name} x${w.qty} - ${money(res.purchase.amount_cents)} - ready for your PayPal approval.`);
-    } else if (res.code === 'PAYPAL_ERROR') {
+      lines.push(`• ${pick.name} x${w.qty} - ${money(r.purchase.amount_cents)} - ready for your PayPal approval.`);
+    } else if (r.blocked?.code === 'PAYPAL_ERROR') {
       failed++;
-      lines.push(`• ${pick.name} - allowed by the mandate, but I could not create the PayPal order: ${res.reason}`);
+      lines.push(`• ${pick.name} - allowed by the mandate, but I could not create the PayPal order: ${r.blocked.reason}`);
     } else {
       blocked++;
-      let line = `• ${pick.name} - blocked: ${res.reason}`;
+      let line = `• ${pick.name} - blocked: ${r.blocked?.reason ?? r.result.error}`;
       const m = getMandate(sid);
       const room = Math.min(m.per_item_cap_cents, m.remaining_cents);
       const head = w.query.split(' ').pop(); // head noun, e.g. "lamp" in "premium architect lamp"
@@ -188,21 +131,22 @@ async function runOffline(sid, userText) {
 // ------------------------------------------------------------------ Entry point
 export async function chat(sid, userText) {
   const text = String(userText ?? '').trim().slice(0, 600);
-  if (!text) return { reply: 'Say what you would like me to buy.', mode: agentMode() };
+  if (!text) return { reply: 'Say what you would like me to buy.', mode: agentMode(), steps: [] };
+  const steps = [];
   let reply;
   let mode = agentMode();
   if (mode === 'claude') {
     try {
-      reply = await runClaude(sid, text);
+      reply = await runClaude(sid, text, steps);
     } catch (e) {
       console.error('[agent] Claude call failed, using offline agent:', e?.status ?? '', e?.message);
       mode = 'offline';
-      reply = `${await runOffline(sid, text)}\n\n(The AI model was unavailable, so the built-in agent handled this.)`;
+      reply = `${await runOffline(sid, text, steps)}\n\n(The AI model was unavailable, so the built-in agent handled this.)`;
     }
   } else {
-    reply = await runOffline(sid, text);
+    reply = await runOffline(sid, text, steps);
   }
   addMessage(sid, 'user', text);
-  addMessage(sid, 'assistant', reply);
-  return { reply, mode };
+  addMessage(sid, 'assistant', reply, steps);
+  return { reply, mode, steps };
 }

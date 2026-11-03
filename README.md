@@ -17,7 +17,17 @@ Give an AI agent a **spending mandate** (budget, per-purchase cap, allowed categ
 Sandbox only: the config refuses to run against anything but the sandbox host.
 
 ## How the AI is used
-A Claude tool-use loop (`search_catalog`, `propose_purchase`, `get_mandate`) decides *what* to buy. It cannot move money or override rules: `propose_purchase` goes through [src/policy.js](src/policy.js) (category, per-purchase cap, remaining budget including pending reservations, duplicate guard). Without an `ANTHROPIC_API_KEY`, a deterministic offline agent uses the same tools and gate, so the app always demos. The UI shows which brain is active.
+A Claude tool-use loop (`search_catalog`, `propose_purchase`, `get_mandate`) decides *what* to buy. It cannot move money or override rules: `propose_purchase` goes through [src/policy.js](src/policy.js) (category, per-purchase cap, remaining budget including pending reservations, duplicate guard). Without an `ANTHROPIC_API_KEY`, a deterministic offline agent uses the same tools and gate, so the app always demos. The UI shows which brain is active, and each reply has an expandable **agent activity** trace (every tool call and policy outcome).
+
+### Bring your own agent (MCP)
+Mandate is also an **MCP server** (Streamable HTTP at `/mcp`). Click **Connect an agent**, generate a token, and any MCP client can use the same rails:
+```bash
+claude mcp add --transport http mandate https://<your-host>/mcp --header "Authorization: Bearer mnd_..."
+```
+Tools: `search_catalog`, `propose_purchase`, `get_mandate`. The external agent can only *request* purchases; the policy engine decides, and you approve each one with PayPal in the web UI. The token is stored hashed and can be revoked. The endpoint is tested with the official MCP SDK client (`test/mcp.test.js`).
+
+### The mandate
+Budget, per-purchase cap, allowed categories, **pace limit** (max purchase requests per hour) and optional **expiry**. Checks run in this order: active -> category -> duplicate -> cap -> budget -> pace.
 
 ## Quick start
 
@@ -71,7 +81,7 @@ Uses an in-process PayPal simulator and the offline agent. Good for a 30-second 
 ```bash
 npm test
 ```
-23 tests: policy unit tests; end-to-end flow tests (agent -> policy -> order -> approve -> capture, decline, cancel, refund, duplicate capture, budget reservations, session isolation, input validation, CSRF hardening, webhook signature/idempotency/amount-mismatch) against the in-process PayPal simulator; and the Claude tool loop against a local stub of the Messages API.
+32 tests: policy unit tests (incl. expiry and pace); end-to-end flow tests (agent -> policy -> order -> approve -> capture, decline, cancel, refund, duplicate capture, budget reservations, session isolation, input validation, CSRF hardening, webhook signature/idempotency/amount-mismatch) against the in-process PayPal simulator; the Claude tool loop against a local stub of the Messages API; and the MCP server driven by the official MCP SDK client.
 
 > Honest status: order creation, order lookup, the not-approved error and the PayPal JS SDK buttons are verified against the real PayPal sandbox; the buyer approval -> capture -> refund -> webhook path is verified against the simulator only. See [DECISIONS.md](DECISIONS.md) and run Option B end to end once before recording.
 
@@ -92,6 +102,8 @@ src/purchases.js   Purchase state machine, audit log, PayPal reconciliation
 src/policy.js      Mandate policy engine (pure functions)
 src/paypal.js      PayPal REST client (orders, capture, refund, webhook verify)
 src/agent.js       Claude tool loop + offline agent
+src/tools.js       Tool surface shared by Claude, the offline agent and MCP
+src/mcp.js         MCP server (Streamable HTTP, bearer-token auth)
 src/mock-paypal.js In-process PayPal simulator (mock mode / tests only)
 src/db.js          SQLite schema + seed
 public/            Vanilla JS UI + AG Grid ledger
@@ -102,6 +114,9 @@ test/              node:test suites
 | | |
 |---|---|
 | ![Approved and declined](docs/screenshots/02-approved-and-declined.png) | ![Mobile](docs/screenshots/03-mobile.png) |
+
+## Official Rules
+Compliance checklist: [docs/RULES_CHECKLIST.md](docs/RULES_CHECKLIST.md).
 
 ## License
 MIT - see [LICENSE](LICENSE).

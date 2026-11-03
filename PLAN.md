@@ -26,7 +26,7 @@ The pitch: *agents are about to spend money on our behalf; PayPal is the trust l
 - Ledger with AG Grid (purchases + audit trail). Per-visitor isolated demo sessions with seeded catalog + mandate.
 - Tests: policy unit tests, full-flow integration tests against a PayPal simulator, Claude loop test against an API stub.
 
-**Nice-to-have (done)** mandate editor, re-request, reset demo, responsive layout, rate limiting.
+**Nice-to-have (done)** mandate editor, re-request, reset demo, responsive layout, rate limiting, **pace limit + expiry rules, agent-activity trace, and Mandate as an MCP server** (so any agent can use the same rails; added Nov 3 after review).
 
 **Cut** user accounts/auth, PayPal Vault / auto-approve of small purchases (requires billing agreements; human approval is the point of the demo), multi-currency, shipping addresses, real merchant feeds (Channel3), PayPal Agent Toolkit/MCP integration (see DECISIONS), Postman/APIMatic/Zapier tie-ins.
 

@@ -1,6 +1,6 @@
 // Domain service: sessions, mandates, purchase lifecycle, PayPal reconciliation.
 // Every state change is audited. Amounts come only from the catalog (server-side).
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash, randomBytes } from 'node:crypto';
 import { getDb, tx } from './db.js';
 import { DEFAULT_MANDATE } from './catalog.js';
 import { COMMITTED_STATUSES, evaluate, centsToValue, money, MAX_QTY } from './policy.js';
@@ -41,9 +41,9 @@ export function ensureSession(sid) {
   const id = randomUUID();
   tx((t) => {
     t.prepare('INSERT INTO sessions (id, created_at) VALUES (?, ?)').run(id, now());
-    t.prepare('INSERT INTO mandates (session_id,name,budget_cents,per_item_cap_cents,categories,updated_at) VALUES (?,?,?,?,?,?)')
+    t.prepare('INSERT INTO mandates (session_id,name,budget_cents,per_item_cap_cents,categories,max_per_hour,updated_at) VALUES (?,?,?,?,?,?,?)')
       .run(id, DEFAULT_MANDATE.name, DEFAULT_MANDATE.budget_cents, DEFAULT_MANDATE.per_item_cap_cents,
-        JSON.stringify(DEFAULT_MANDATE.categories), now());
+        JSON.stringify(DEFAULT_MANDATE.categories), DEFAULT_MANDATE.max_per_hour, now());
   });
   audit(id, null, 'mandate.created', `Mandate "${DEFAULT_MANDATE.name}": ${money(DEFAULT_MANDATE.budget_cents)} budget, ${money(DEFAULT_MANDATE.per_item_cap_cents)} per-purchase cap`);
   return id;
@@ -55,9 +55,9 @@ export function resetSession(sid) {
     t.prepare('DELETE FROM purchases WHERE session_id = ?').run(sid);
     t.prepare('DELETE FROM audit WHERE session_id = ?').run(sid);
     t.prepare('DELETE FROM messages WHERE session_id = ?').run(sid);
-    t.prepare('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, updated_at=? WHERE session_id=?')
+    t.prepare('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=NULL, max_per_hour=?, updated_at=? WHERE session_id=?')
       .run(DEFAULT_MANDATE.name, DEFAULT_MANDATE.budget_cents, DEFAULT_MANDATE.per_item_cap_cents,
-        JSON.stringify(DEFAULT_MANDATE.categories), now(), sid);
+        JSON.stringify(DEFAULT_MANDATE.categories), DEFAULT_MANDATE.max_per_hour, now(), sid);
   });
   audit(sid, null, 'session.reset', 'Demo reset');
   return d && getMandate(sid);
@@ -81,6 +81,9 @@ export function getMandate(sid) {
     budget_cents: m.budget_cents,
     per_item_cap_cents: m.per_item_cap_cents,
     categories: JSON.parse(m.categories),
+    expires_at: m.expires_at ?? null,
+    max_per_hour: m.max_per_hour ?? null,
+    expired: Boolean(m.expires_at && now() > m.expires_at),
     committed_cents: committed,
     captured_cents: captured,
     remaining_cents: Math.max(m.budget_cents - committed, 0),
@@ -93,14 +96,22 @@ export function updateMandate(sid, input) {
   const budget = input.budget_cents === undefined ? cur.budget_cents : input.budget_cents;
   const cap = input.per_item_cap_cents === undefined ? cur.per_item_cap_cents : input.per_item_cap_cents;
   const cats = input.categories === undefined ? cur.categories : input.categories;
+  const expires = input.expires_at === undefined ? cur.expires_at : input.expires_at;
+  const pace = input.max_per_hour === undefined ? cur.max_per_hour : input.max_per_hour;
+  if (expires !== null && (!Number.isInteger(expires) || expires < now() || expires > now() + 366 * 86400_000)) {
+    throw new AppError(400, 'BAD_INPUT', 'Expiry must be a future date within the next year (or empty for no expiry).');
+  }
+  if (pace !== null && (!Number.isInteger(pace) || pace < 1 || pace > 100)) {
+    throw new AppError(400, 'BAD_INPUT', 'Purchase pace must be between 1 and 100 requests per hour (or empty for unlimited).');
+  }
   if (!name) throw new AppError(400, 'BAD_INPUT', 'Mandate name is required.');
   if (!Number.isInteger(budget) || budget < 100 || budget > 1_000_000) throw new AppError(400, 'BAD_INPUT', 'Budget must be between $1.00 and $10,000.00.');
   if (!Number.isInteger(cap) || cap < 100 || cap > budget) throw new AppError(400, 'BAD_INPUT', 'Per-purchase cap must be at least $1.00 and no more than the budget.');
   const known = new Set(listCategories());
   if (!Array.isArray(cats) || cats.some((c) => !known.has(c))) throw new AppError(400, 'BAD_INPUT', `Categories must be a subset of: ${[...known].join(', ')}.`);
-  getDb().prepare('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, updated_at=? WHERE session_id=?')
-    .run(name, budget, cap, JSON.stringify(cats), now(), sid);
-  audit(sid, null, 'mandate.updated', `Budget ${money(budget)}, cap ${money(cap)}, categories: ${cats.join(', ') || 'none'}`);
+  getDb().prepare('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=?, max_per_hour=?, updated_at=? WHERE session_id=?')
+    .run(name, budget, cap, JSON.stringify(cats), expires, pace, now(), sid);
+  audit(sid, null, 'mandate.updated', `Budget ${money(budget)}, cap ${money(cap)}, categories: ${cats.join(', ') || 'none'}, pace ${pace ?? 'unlimited'}/h, expires ${expires ? new Date(expires).toISOString().slice(0, 10) : 'never'}`);
   return getMandate(sid);
 }
 
@@ -144,13 +155,14 @@ export function listAudit(sid, limit = 300) {
     WHERE a.session_id = ? ORDER BY a.id DESC LIMIT ?`).all(sid, limit);
 }
 
-export function addMessage(sid, role, content) {
-  getDb().prepare('INSERT INTO messages (session_id, role, content, created_at) VALUES (?,?,?,?)').run(sid, role, content, now());
+export function addMessage(sid, role, content, trace = null) {
+  getDb().prepare('INSERT INTO messages (session_id, role, content, trace, created_at) VALUES (?,?,?,?,?)')
+    .run(sid, role, content, trace?.length ? JSON.stringify(trace) : null, now());
 }
 
 export function listMessages(sid, limit = 40) {
-  return getDb().prepare('SELECT role, content, created_at FROM (SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC')
-    .all(sid, limit);
+  return getDb().prepare('SELECT role, content, trace, created_at FROM (SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC')
+    .all(sid, limit).map(({ trace, ...m }) => ({ ...m, trace: trace ? JSON.parse(trace) : [] }));
 }
 
 // ---------------------------------------------------------------- purchases
@@ -219,7 +231,10 @@ export async function proposePurchase(sid, { product_id, qty = 1, rationale = ''
     const open = product
       ? t.prepare(`SELECT 1 FROM purchases WHERE session_id=? AND product_id=? AND status IN (${placeholders(COMMITTED)})`).get(sid, product.id, ...COMMITTED)
       : null;
-    const verdict = evaluate(m, product, qty, { committed_cents: m.committed_cents, open_same_product: Boolean(open) });
+    // Pace: purchase requests that passed policy in the last hour (blocked/failed ones don't count against the agent).
+    const recent = t.prepare("SELECT COUNT(*) AS c FROM purchases WHERE session_id=? AND created_at > ? AND status NOT IN ('blocked','failed')")
+      .get(sid, now() - 3600_000).c;
+    const verdict = evaluate(m, product, qty, { committed_cents: m.committed_cents, open_same_product: Boolean(open), now: now(), recent_count: recent });
     const stamp = now();
     const base = {
       product_id: product?.id ?? String(product_id).slice(0, 64),
@@ -404,4 +419,30 @@ export function applyWebhookEvent(event) {
       audit(sid, row.id, 'webhook.ignored', event.event_type);
   }
   return { applied: true };
+}
+
+// ---------------------------------------------------------------- MCP connection tokens
+// Lets an external agent (Claude Desktop/Code, any MCP client) spend through the SAME policy gate.
+// Only the sha256 of the token is stored; the plaintext is shown once at creation.
+const sha = (t) => createHash('sha256').update(t).digest('hex');
+
+export function issueMcpToken(sid) {
+  const token = `mnd_${randomBytes(24).toString('base64url')}`;
+  getDb().prepare('UPDATE sessions SET mcp_token_hash = ? WHERE id = ?').run(sha(token), sid);
+  audit(sid, null, 'mcp.token_issued', 'A connection token for external agents (MCP) was generated; any previous token is revoked');
+  return token;
+}
+
+export function revokeMcpToken(sid) {
+  getDb().prepare('UPDATE sessions SET mcp_token_hash = NULL WHERE id = ?').run(sid);
+  audit(sid, null, 'mcp.token_revoked', 'External agent connection token revoked');
+}
+
+export function hasMcpToken(sid) {
+  return Boolean(getDb().prepare('SELECT mcp_token_hash AS h FROM sessions WHERE id = ?').get(sid)?.h);
+}
+
+export function sessionForMcpToken(token) {
+  if (!/^mnd_[\w-]{20,64}$/.test(String(token))) return null;
+  return getDb().prepare('SELECT id FROM sessions WHERE mcp_token_hash = ?').get(sha(token))?.id ?? null;
 }

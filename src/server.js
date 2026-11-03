@@ -9,6 +9,7 @@ import { AppError } from './purchases.js';
 import { chat, agentMode } from './agent.js';
 import { verifyWebhook } from './paypal.js';
 import { createMockPayPal } from './mock-paypal.js';
+import { createMcpRouter } from './mcp.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const COOKIE = 'mandate_sid';
@@ -82,11 +83,14 @@ export function createApp() {
 
   if (config.paypal.mode === 'mock') app.use('/mock-paypal', createMockPayPal());
 
+  app.use('/mcp', createMcpRouter());
+
   app.use(express.json({ limit: '16kb' }));
 
   // ---- session cookie
   app.use('/api', (req, res, next) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !req.is('application/json')) {
+    // Header-based (not body-based) so body-less POST/DELETE from API clients work, while cross-site form posts are still rejected.
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !/^application\/json/i.test(req.headers['content-type'] ?? '')) {
       return sendError(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Content-Type must be application/json');
     }
     const existing = parseCookies(req.headers.cookie)[COOKIE];
@@ -123,12 +127,19 @@ export function createApp() {
     });
   });
 
+  // ---- connect external agents (MCP)
+  const mcpUrl = (req) => `${(req.headers['x-forwarded-proto'] || req.protocol)}://${req.get('host')}/mcp`;
+  app.get('/api/connect', (req, res) => res.json({ url: mcpUrl(req), connected: svc.hasMcpToken(req.sid) }));
+  app.post('/api/connect', (req, res) => res.json({ url: mcpUrl(req), token: svc.issueMcpToken(req.sid), connected: true }));
+  app.delete('/api/connect', (req, res) => { svc.revokeMcpToken(req.sid); res.json({ connected: false }); });
+
   app.get('/api/products', (_req, res) => res.json({ products: svc.allProducts() }));
 
   app.put('/api/mandate', (req, res) => {
     const b = req.body ?? {};
     res.json({ mandate: svc.updateMandate(req.sid, {
       name: b.name, budget_cents: b.budget_cents, per_item_cap_cents: b.per_item_cap_cents, categories: b.categories,
+      expires_at: b.expires_at, max_per_hour: b.max_per_hour,
     }) });
   });
 

@@ -5,7 +5,7 @@
 // ends in a PayPal order that a human must approve.
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.js';
-import { searchProducts, getMandate, addMessage, listMessages } from './purchases.js';
+import { searchProducts, allProducts, getMandate, addMessage, listMessages } from './purchases.js';
 import { money } from './policy.js';
 import { TOOLS, runTool } from './tools.js';
 
@@ -59,7 +59,7 @@ async function runClaude(sid, userText, steps) {
 
 // ------------------------------------------------------------------ Offline brain
 const NUM_WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5 };
-const STOP = new Set(['i', 'need', 'want', 'get', 'buy', 'me', 'please', 'a', 'an', 'the', 'some', 'for', 'my', 'to', 'and', 'of', 'new', 'under', 'below', 'less', 'than', 'max', 'up', 'about', 'around', 'set', 'with', 'also', 'order', 'purchase', 'find', 'pick', 'grab', 'that', 'is', 'cheap', 'good', 'nice', 'one', 'two', 'three']);
+const STOP = new Set(['i', 'need', 'want', 'get', 'buy', 'me', 'please', 'a', 'an', 'the', 'some', 'for', 'my', 'to', 'and', 'of', 'new', 'under', 'below', 'less', 'than', 'max', 'up', 'about', 'around', 'set', 'with', 'also', 'order', 'purchase', 'find', 'pick', 'grab', 'that', 'is', 'cheap', 'cheapest', 'good', 'nice', 'one', 'two', 'three', 'four', 'five', 'something', 'thing', 'desk', 'what', 'can', 'you', 'could', 'would', 'like', 'big', 'bigger', 'larger', 'hold', 'have', 'do', 'does', 'it', 'on', 'in', 'your', 'catalog', 'sell']);
 
 export function parseRequest(text) {
   const parts = String(text)
@@ -86,7 +86,8 @@ export function parseRequest(text) {
 async function runOffline(sid, userText, steps) {
   const wants = parseRequest(userText);
   if (!wants.length) {
-    return 'Tell me what to get, e.g. "a desk lamp under $40 and a mechanical keyboard". I will check each item against your mandate and queue the allowed ones for PayPal approval.';
+    const kinds = [...new Set(allProducts().map((p) => p.name.replace(/\(.*?\)/g, '').trim().split(' ').at(-1).toLowerCase()))].join(', ');
+    return `Tell me what to get, e.g. "a desk lamp under $40 and a mechanical keyboard". I can shop for: ${kinds}. I will check each item against your mandate and queue the allowed ones for PayPal approval.`;
   }
   const call = async (name, input) => { const r = await runTool(sid, name, input); steps.push(r.step); return r; };
   const lines = [];

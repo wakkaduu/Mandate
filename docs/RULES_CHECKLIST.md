@@ -6,7 +6,7 @@ Source: *PayPal AI Hackathon Official Rules* (Devpost). Submission period: **Oct
 |---|---|---|---|
 | 1 | Build an app that integrates the PayPal developer platform **using the free sandbox**, with an AI tool/model; PayPal integration must be central (4, Project Requirements; Stage 1 pass/fail, 6) | DONE | Orders v2 create/capture/refund, JS SDK approval, webhooks, all sandbox-only (`src/config.js` refuses non-sandbox hosts). AI: Claude tool loop + MCP server |
 | 2 | Project is new, or significantly updated during the period (4) | DONE | Created Nov 3, 2026 (inside the period); git history shows it |
-| 3 | Functional demo: judges can run it from repo instructions **or** a hosted URL; mockups don't count (4, Submission Requirements) | DONE / TODO | README has complete run instructions incl. a no-credentials `PAYPAL_MODE=mock` path. TODO: also deploy the hosted URL on Render |
+| 3 | Functional demo (verify a deployment with `npm run smoke -- <url>`): judges can run it from repo instructions **or** a hosted URL; mockups don't count (4, Submission Requirements) | DONE / TODO | README has complete run instructions incl. a no-credentials `PAYPAL_MODE=mock` path. TODO: also deploy the hosted URL on Render |
 | 4 | Public code repo (GitHub/Bitbucket/GitLab) with **all** source, assets and instructions (4) | TODO | Code is pushed to github.com/wakkaduu/Mandate. TODO: set repo to **Public** |
 | 5 | Repo is open source with a license **visible in the About section** (4) | DONE / TODO | MIT `LICENSE` at the root (GitHub detects it). TODO: confirm "MIT license" shows in About after the repo is public |
 | 6 | Text description of features and functionality (4) | DONE | `SUBMISSION.md` |
@@ -26,7 +26,7 @@ Source: *PayPal AI Hackathon Official Rules* (Devpost). Submission period: **Oct
 | 20 | No malicious code/viruses (7) | DONE | Small readable codebase; `npm audit` clean |
 
 ## Criteria map (Stage 2, equally weighted)
-- **Technological Implementation:** server-side Orders v2 with idempotency + unique invoice ids, capture verification, refunds, signed webhooks, atomic budget reservations, Claude tool loop, MCP server (conformance-tested with the official SDK client), 32 automated tests.
+- **Technological Implementation:** server-side Orders v2 with idempotency + unique invoice ids, capture verification, refunds, signed webhooks, atomic budget reservations, Claude tool loop, MCP server (conformance-tested with the official SDK client), 34 automated tests.
 - **Design:** a four-step "how it works" strip, live budget bar, per-purchase policy checklists, agent-activity trace, full state coverage (blocked/declined/cancelled/expired/refunded), responsive and keyboard-friendly.
 - **Potential Impact:** a specific problem (letting agents spend without handing them a card) for a real audience (anyone deploying shopping/procurement agents), with PayPal as the consent and settlement layer.
 - **Innovation:** policy-gated delegated spending plus an MCP surface so any agent can use the same rails.

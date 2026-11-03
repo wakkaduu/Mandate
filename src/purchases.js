@@ -120,15 +120,39 @@ export function listCategories() {
 }
 
 // ---------------------------------------------------------------- catalog
+// Query understanding is deliberately small and deterministic: normalise (plurals, a few synonyms), ignore filler
+// words, and score name/head-noun/tag hits. Shared by the Claude `search_catalog` tool, the offline agent and MCP.
+const SYNONYMS = { light: 'lamp', lighting: 'lamp', illuminat: 'lamp', screen: 'monitor', display: 'monitor', headset: 'headphone', earphone: 'headphone', cushion: 'mat', pad: 'mat', laptop: 'hub', adapter: 'hub', dongle: 'hub' };
+const FILLER = new Set(['a', 'an', 'the', 'my', 'me', 'i', 'for', 'to', 'of', 'and', 'with', 'some', 'any', 'new', 'desk', 'something', 'thing', 'cheap', 'cheapest', 'best', 'good', 'nice', 'big', 'bigger', 'large', 'larger', 'please', 'under', 'below', 'up']);
+const normToken = (w) => {
+  let t = w.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) t = t.slice(0, -1);
+  return SYNONYMS[t] ?? t;
+};
+const tokens = (text) => String(text).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(normToken);
+const headNoun = (name) => tokens(name.replace(/\(.*?\)/g, ' ')).at(-1);
+
 export function searchProducts({ query = '', max_price_cents, category } = {}) {
   const rows = getDb().prepare('SELECT * FROM products ORDER BY price_cents ASC').all();
-  const words = String(query).toLowerCase().split(/[^a-z0-9"+-]+/).filter((w) => w.length > 1);
+  const q = [...new Set(tokens(query).filter((t) => t.length > 1 && !FILLER.has(t)))];
   const scored = rows
     .filter((p) => (!category || p.category === category) && (!max_price_cents || p.price_cents <= max_price_cents))
     .map((p) => {
-      const hay = `${p.name} ${p.tags} ${p.category} ${p.merchant} ${p.description}`.toLowerCase();
-      const score = words.length ? words.reduce((s, w) => s + (hay.includes(w) ? 1 : 0), 0) : 1;
-      return { p, score };
+      if (!q.length) return { p, score: 1 };
+      const name = new Set(tokens(p.name));
+      const tags = new Set(tokens(`${p.tags} ${p.merchant}`));
+      const desc = new Set(tokens(p.description));
+      const head = headNoun(p.name);
+      let score = 0;
+      let strong = false;
+      for (const t of q) {
+        const hit = (set) => set.has(t) || (t.length >= 4 && [...set].some((x) => x.startsWith(t)));
+        if (hit(name)) { score += 3; strong = true; }
+        if (t === head) score += 2;
+        if (hit(tags)) { score += 2; strong = true; }
+        if (hit(desc)) score += 0.5;
+      }
+      return { p, score: strong ? score : 0 };
     })
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score || a.p.price_cents - b.p.price_cents);

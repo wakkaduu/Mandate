@@ -11,7 +11,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.js",
     "dev": "PAYPAL_MODE=mock node --env-file-if-exists=.env --watch src/server.js",
-    "test": "node --test --no-warnings \"test/*.test.js\""
+    "test": "node --test --no-warnings \"test/*.test.js\"",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

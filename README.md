@@ -81,7 +81,7 @@ Uses an in-process PayPal simulator and the offline agent. Good for a 30-second 
 ```bash
 npm test
 ```
-32 tests: policy unit tests (incl. expiry and pace); end-to-end flow tests (agent -> policy -> order -> approve -> capture, decline, cancel, refund, duplicate capture, budget reservations, session isolation, input validation, CSRF hardening, webhook signature/idempotency/amount-mismatch) against the in-process PayPal simulator; the Claude tool loop against a local stub of the Messages API; and the MCP server driven by the official MCP SDK client.
+34 tests: policy unit tests (incl. expiry and pace); catalog search; end-to-end flow tests (agent -> policy -> order -> approve -> capture, decline, cancel, refund, duplicate capture, budget reservations, session isolation, input validation, CSRF hardening, webhook signature/idempotency/amount-mismatch) against the in-process PayPal simulator; the Claude tool loop against a local stub of the Messages API; and the MCP server driven by the official MCP SDK client.
 
 > Honest status: order creation, order lookup, the not-approved error and the PayPal JS SDK buttons are verified against the real PayPal sandbox; the buyer approval -> capture -> refund -> webhook path is verified against the simulator only. See [DECISIONS.md](DECISIONS.md) and run Option B end to end once before recording.
 
@@ -91,6 +91,8 @@ npm test
 3. Set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, optionally `PAYPAL_WEBHOOK_ID` and `ANTHROPIC_API_KEY` in the dashboard.
 4. Add the webhook in the PayPal dashboard pointing at `https://<service>.onrender.com/api/paypal/webhook`.
 5. Open the URL (the free instance sleeps when idle; first load can take ~30s) and run the demo script.
+6. Verify the deployment: `npm run smoke -- https://<service>.onrender.com` (health, agent, a real sandbox order that it then cancels, webhook and MCP hardening).
+7. Optional: point a free uptime monitor (e.g. UptimeRobot) at `/healthz` every 5 minutes so the free instance stays awake for judges.
 
 ## API
 See [docs/API.md](docs/API.md) for the endpoint contract and the single error envelope.

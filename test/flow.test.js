@@ -1,21 +1,17 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { boot, client, approve } from './helpers.js';
-import { parseRequest } from '../src/agent.js';
+import { boot, client, approve, buy } from './helpers.js';
 
 let app;
 before(async () => { app = await boot(); });
 after(async () => { await app.close(); });
 
-const chatAs = (c, message) => c.post('/api/chat', { message });
 const state = async (c) => (await c.get('/api/state')).body;
 const byProduct = (s, id) => s.purchases.find((p) => p.product_id === id);
 
 test('agent request -> policy gate -> PayPal order -> approve -> capture -> budget updates', async () => {
   const c = client(app.base);
-  const r = await chatAs(c, 'I need a desk lamp under $40, a mechanical keyboard and a 4K monitor');
-  assert.equal(r.status, 200);
-  assert.equal(r.body.mode, 'offline');
+  await buy(c, 'lamp-aurora', 'kb-tactile', 'mon-4k');
 
   let s = await state(c);
   const lamp = byProduct(s, 'lamp-aurora');
@@ -56,7 +52,7 @@ test('agent request -> policy gate -> PayPal order -> approve -> capture -> budg
 
 test('declined instrument releases budget and can be re-requested', async () => {
   const c = client(app.base);
-  await chatAs(c, 'a vertical ergonomic mouse');
+  await buy(c, 'mouse-ergo');
   let s = await state(c);
   const p = byProduct(s, 'mouse-ergo');
   assert.equal(p.status, 'pending');
@@ -75,7 +71,7 @@ test('declined instrument releases budget and can be re-requested', async () => 
 
 test('cancelling releases budget; cancelled purchases cannot be captured', async () => {
   const c = client(app.base);
-  await chatAs(c, 'a felt desk mat');
+  await buy(c, 'mat-desk');
   let s = await state(c);
   const p = byProduct(s, 'mat-desk');
   assert.equal(s.mandate.committed_cents, 2400);
@@ -88,9 +84,9 @@ test('cancelling releases budget; cancelled purchases cannot be captured', async
 test('budget is enforced across purchases (reservations count) and duplicates are blocked', async () => {
   const c = client(app.base);
   await c.put('/api/mandate', { budget_cents: 10000, per_item_cap_cents: 9000, categories: ['electronics', 'office'] });
-  await chatAs(c, 'a mechanical keyboard');          // 89.00 reserved
-  await chatAs(c, 'a 7-in-1 usb-c hub');             // 45.00 > 11.00 remaining
-  await chatAs(c, 'a mechanical keyboard');          // duplicate
+  await buy(c, 'kb-tactile');          // 89.00 reserved
+  await buy(c, 'hub-usbc');            // 45.00 > 11.00 remaining
+  await buy(c, 'kb-tactile');          // duplicate
   const s = await state(c);
   assert.equal(byProduct(s, 'kb-tactile').status === 'pending' || s.purchases.some((p) => p.product_id === 'kb-tactile' && p.status === 'pending'), true);
   assert.match(byProduct(s, 'hub-usbc').reason, /OVER_BUDGET/);
@@ -100,7 +96,7 @@ test('budget is enforced across purchases (reservations count) and duplicates ar
 
 test('category restrictions are enforced', async () => {
   const c = client(app.base);
-  await chatAs(c, 'an ergonomic chair');
+  await buy(c, 'chair-ergo');
   const s = await state(c);
   const chair = byProduct(s, 'chair-ergo');
   assert.equal(chair.status, 'blocked');
@@ -109,7 +105,7 @@ test('category restrictions are enforced', async () => {
 
 test('refund releases budget', async () => {
   const c = client(app.base);
-  await chatAs(c, 'a pothos plant');
+  await buy(c, 'plant-pothos');
   let s = await state(c);
   const p = byProduct(s, 'plant-pothos');
   await approve(app.base, p.paypal_order_id);
@@ -125,7 +121,7 @@ test('refund releases budget', async () => {
 test('sessions are isolated', async () => {
   const a = client(app.base);
   const b = client(app.base);
-  await chatAs(a, 'a pothos plant');
+  await buy(a, 'plant-pothos');
   const sa = await state(a);
   const sb = await state(b);
   assert.equal(sa.purchases.length, 1);
@@ -161,7 +157,7 @@ const sendHook = (event, sig) => fetch(`${app.base}/api/paypal/webhook`, { metho
 
 test('webhook: rejects bad signatures, applies verified events once, ignores duplicates', async () => {
   const c = client(app.base);
-  await chatAs(c, 'a pothos plant');
+  await buy(c, 'plant-pothos');
   const p = byProduct(await state(c), 'plant-pothos');
   const event = {
     id: 'WH-EVT-1', event_type: 'PAYMENT.CAPTURE.COMPLETED',
@@ -181,7 +177,7 @@ test('webhook: rejects bad signatures, applies verified events once, ignores dup
 
 test('webhook: amount mismatch does not mark a purchase captured', async () => {
   const c = client(app.base);
-  await chatAs(c, 'a pothos plant');
+  await buy(c, 'plant-pothos');
   const p = byProduct(await state(c), 'plant-pothos');
   const res = await sendHook({
     id: 'WH-EVT-2', event_type: 'PAYMENT.CAPTURE.COMPLETED',
@@ -189,15 +185,6 @@ test('webhook: amount mismatch does not mark a purchase captured', async () => {
   });
   assert.equal(res.status, 200);
   assert.equal(byProduct(await state(c), 'plant-pothos').status, 'pending');
-});
-
-// ---------------------------------------------------------------- offline agent parsing
-test('offline agent parses multi-item requests', () => {
-  const w = parseRequest('Set up my desk: a lamp under $40, two felt desk mats and a 4K monitor');
-  assert.equal(w.length, 3);
-  assert.equal(w[0].maxPrice, 4000);
-  assert.equal(w[1].qty, 2);
-  assert.match(w[2].query, /4k/);
 });
 
 // ---------------------------------------------------------------- API contract
@@ -221,9 +208,9 @@ test('every error uses one envelope { error: { code, message, requestId } } and 
 test('pace limit blocks a runaway agent; expiry blocks everything; both are editable', async () => {
   const c = client(app.base);
   assert.equal((await c.put('/api/mandate', { max_per_hour: 2 })).status, 200);
-  await chatAs(c, 'a felt desk mat');
-  await chatAs(c, 'a pothos plant');
-  await chatAs(c, 'a vertical ergonomic mouse');
+  await buy(c, 'mat-desk');
+  await buy(c, 'plant-pothos');
+  await buy(c, 'mouse-ergo');
   let s = await state(c);
   assert.equal(byProduct(s, 'mouse-ergo').status, 'blocked');
   assert.match(byProduct(s, 'mouse-ergo').reason, /OVER_PACE/);
@@ -235,13 +222,43 @@ test('pace limit blocks a runaway agent; expiry blocks everything; both are edit
   assert.equal((await c.put('/api/mandate', { expires_at: Date.now() + 86400_000 })).status, 200);
 });
 
-test('chat returns an agent activity trace that is persisted with the message', async () => {
+test('unknown, stale and over-quantity offers are refused by the policy gate, never sent to PayPal', async () => {
   const c = client(app.base);
-  const r = await chatAs(c, 'a desk lamp under $40 and a 4K monitor');
-  assert.ok(r.body.steps.length >= 4);
-  assert.ok(r.body.steps.some((x) => x.tool === 'search_catalog' && x.ok));
-  assert.ok(r.body.steps.some((x) => x.tool === 'propose_purchase' && x.ok === false && /OVER_ITEM_CAP/.test(x.text)));
+  const [unknown, big] = await buy(c, 'o_doesnotexist', ['lamp-aurora', 99]);
+  assert.equal(unknown.code, 'UNKNOWN_PRODUCT');
+  assert.equal(big.code, 'BAD_QUANTITY');
+  const { db } = await import('../src/db.js');
+  await (await db()).run("UPDATE offers SET updated_at = ? WHERE id = 'mat-desk'", [Date.now() - 7 * 3600_000]);
+  const [stale] = await buy(c, 'mat-desk');
+  assert.equal(stale.code, 'STALE_PRICE');
   const s = await state(c);
-  const last = s.messages.filter((m) => m.role === 'assistant').at(-1);
-  assert.deepEqual(last.trace, r.body.steps);
+  assert.ok(s.purchases.every((p) => p.status === 'blocked' && !p.paypal_order_id));
+  await (await db()).run("UPDATE offers SET updated_at = ? WHERE id = 'mat-desk'", [Date.now()]);
+});
+
+test('purchases carry the retailer URL and the verified-price flag into the ledger', async () => {
+  const c = client(app.base);
+  await buy(c, 'lamp-aurora');
+  const p = (await state(c)).purchases[0];
+  assert.equal(p.product_url, 'https://shop.example/lamp-aurora');
+  assert.equal(p.price_verified, 1);
+});
+
+// ---------------------------------------------------------------- manual search path
+test('manual search + request: validated input, unavailable search is a clean 503, requests use the same policy gate', async () => {
+  const c = client(app.base);
+  assert.equal((await c.post('/api/search', { query: 'x' })).status, 400);
+  assert.equal((await c.post('/api/search', { query: 'lamp', max_price_usd: -3 })).status, 400);
+  const s = await c.post('/api/search', { query: 'lamp' });           // no search provider keys in tests
+  assert.equal(s.status, 503);
+  assert.equal(s.body.error.code, 'SEARCH_UNAVAILABLE');
+
+  const ok = await c.post('/api/offers/lamp-aurora/request', { qty: 1 });
+  assert.equal(ok.body.allowed, true);
+  const blocked = await c.post('/api/offers/mon-4k/request', { qty: 1 });
+  assert.equal(blocked.body.allowed, false);
+  assert.equal(blocked.body.code, 'OVER_ITEM_CAP');
+  assert.equal((await c.post('/api/offers/o_unknown/request', {})).body.code, 'UNKNOWN_PRODUCT');
+  const st = await state(c);
+  assert.match(st.purchases.find((p) => p.product_id === 'lamp-aurora').rationale, /Requested by you/);
 });

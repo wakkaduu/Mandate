@@ -23,7 +23,15 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-3.5-flash,gemini-3.1-flash-lite,gemini-flash-latest,gemini-3.8-flash
+        value: gemini-3.1-flash-lite,gemini-3.5-flash,gemini-flash-latest,gemini-3.8-flash
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
+      - key: WEB_SEARCH_CACHE_MINUTES
+        value: "180"
+      - key: SEARCH_PROVIDERS
+        value: tavily,serper,gemini
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: DATABASE_PATH

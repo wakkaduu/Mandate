@@ -1,12 +1,12 @@
 // Persistence via libSQL (SQLite-compatible): a local file for development / Render, or a remote Turso
 // database (TURSO_DATABASE_URL + TURSO_AUTH_TOKEN) for serverless hosts such as Vercel where the filesystem is
-// ephemeral. One async code path for both. The product catalog lives in code (src/catalog.js), not in the DB.
+// ephemeral. One async code path for both. Products are not stored as a catalog: `offers` holds web search results whose price the server verified.
 import { createClient } from '@libsql/client';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS purchases (
   merchant TEXT NOT NULL,
   category TEXT NOT NULL,
   qty INTEGER NOT NULL,
-  amount_cents INTEGER NOT NULL,       -- computed server-side from the catalog, never from the client/agent
+  amount_cents INTEGER NOT NULL,       -- computed server-side from a stored offer, never from the client/agent
+  product_url TEXT,                    -- the retailer page the offer came from
+  price_verified INTEGER NOT NULL DEFAULT 0, -- 1 = server read the price from the retailer's page
   status TEXT NOT NULL,                -- see src/purchases.js STATUS
   reason TEXT,                         -- policy / failure explanation
   rationale TEXT,                      -- agent's stated reason for the purchase
@@ -44,6 +46,29 @@ CREATE TABLE IF NOT EXISTS purchases (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS offers (
+  id TEXT PRIMARY KEY,                 -- o_ + hash of the canonical product URL
+  title TEXT NOT NULL,
+  merchant TEXT NOT NULL,
+  category TEXT NOT NULL,
+  price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+  url TEXT NOT NULL,
+  price_verified INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS search_cache (
+  key TEXT PRIMARY KEY,                -- normalised query + filters
+  offer_ids TEXT NOT NULL,             -- JSON array of offers.id
+  provider TEXT NOT NULL,
+  skipped INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS search_log (  -- one row per real provider search: the daily search budget
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_search_log_time ON search_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_purchases_session ON purchases(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_purchases_order ON purchases(paypal_order_id);
 CREATE TABLE IF NOT EXISTS audit (
@@ -102,12 +127,17 @@ async function init() {
     await add('mandates', 'max_per_hour', 'INTEGER DEFAULT 6');
     await add('sessions', 'mcp_token_hash', 'TEXT');
     await add('messages', 'trace', 'TEXT');
+    await add('purchases', 'product_url', 'TEXT');
+    await add('purchases', 'price_verified', 'INTEGER NOT NULL DEFAULT 0');
     await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_mcp ON sessions(mcp_token_hash) WHERE mcp_token_hash IS NOT NULL');
     await q.run("INSERT INTO app_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(SCHEMA_VERSION)]);
   }
   if (dbUrl.startsWith('file:')) await client.execute('PRAGMA foreign_keys = ON').catch(() => {});
   // Housekeeping: demo sessions older than 7 days go away (children cascade).
   await q.run('DELETE FROM sessions WHERE created_at < ?', [Date.now() - 7 * 24 * 3600 * 1000]);
+  await q.run('DELETE FROM offers WHERE updated_at < ?', [Date.now() - 7 * 24 * 3600 * 1000]);
+  await q.run('DELETE FROM search_cache WHERE created_at < ?', [Date.now() - 24 * 3600 * 1000]);
+  await q.run('DELETE FROM search_log WHERE created_at < ?', [Date.now() - 48 * 3600 * 1000]);
   return q;
 }
 

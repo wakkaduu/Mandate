@@ -1,34 +1,38 @@
 // The agent tool surface, shared by every "brain": the Claude loop, the offline agent and the MCP server.
 // Nothing here can move money: propose_purchase goes through the policy gate and ends in a PayPal order
 // that a human must approve.
-import { searchProducts, proposePurchase, getMandate } from './purchases.js';
+import { proposePurchase, getMandate } from './purchases.js';
+import { evaluate } from './policy.js';
+import { searchWeb, SearchUnavailable } from './web/search.js';
+import { config } from './config.js';
+import { CATEGORIES } from './categories.js';
 import { money } from './policy.js';
 
 export const TOOLS = [
   {
-    name: 'search_catalog',
-    description: 'Search the product catalog. Returns up to 8 products with id, name, merchant, category, price in USD.',
+    name: 'search_products',
+    description: 'Search the live web for products to buy. Returns up to 6 offers; each has an offer_id, title, merchant, category, unit price in USD, the retailer URL and fits_mandate (a server pre-check against the user\'s mandate: category, per-purchase cap, remaining budget). The server opened every product page and read the price and category itself, so these are authoritative. Call it once per item the user wants, with a short specific query.',
     input_schema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Keywords, e.g. "mechanical keyboard"' },
+        query: { type: 'string', description: 'What to find, e.g. "mechanical keyboard hot-swappable"' },
         max_price_usd: { type: 'number', description: 'Optional maximum unit price in USD' },
-        category: { type: 'string', description: 'Optional category filter (office, electronics, furniture, home)' },
+        category: { type: 'string', description: `Optional category hint: ${CATEGORIES.join(', ')}` },
       },
       required: ['query'],
     },
   },
   {
     name: 'propose_purchase',
-    description: 'Request a purchase on behalf of the user. It is checked against their spending mandate; if allowed, a PayPal order is created for the human to approve. You cannot spend money directly.',
+    description: 'Request a purchase of one offer returned by search_products. It is checked against the user\'s spending mandate; if allowed, a PayPal order is created for the human to approve. You cannot spend money directly and you cannot set the price.',
     input_schema: {
       type: 'object',
       properties: {
-        product_id: { type: 'string' },
+        offer_id: { type: 'string', description: 'The offer_id from search_products' },
         qty: { type: 'integer', description: 'Quantity, default 1' },
         rationale: { type: 'string', description: 'One sentence: why this item' },
       },
-      required: ['product_id', 'rationale'],
+      required: ['offer_id', 'rationale'],
     },
   },
   {
@@ -38,7 +42,26 @@ export const TOOLS = [
   },
 ];
 
-const productView = (p) => ({ id: p.id, name: p.name, merchant: p.merchant, category: p.category, price_usd: p.price_cents / 100, description: p.description });
+const offerView = (o, m) => {
+  // Same policy engine the purchase gate uses, run for qty 1 so the model can pick in-policy options up front.
+  const v = evaluate(m, o, 1, { committed_cents: m.committed_cents, open_same_product: false });
+  return {
+    offer_id: o.id, title: o.name, merchant: o.merchant, category: o.category, price_usd: o.price_cents / 100, url: o.url, price_verified: o.price_verified,
+    fits_mandate: v.ok, ...(v.ok ? {} : { mandate_issue: `${v.code}: ${v.reason}` }),
+  };
+};
+
+// Each web search costs a model call plus up to 6 page fetches: cap it per session (best effort, per instance).
+const searchLog = new Map();
+function searchAllowed(sid) {
+  const t = Date.now();
+  const recent = (searchLog.get(sid) ?? []).filter((x) => x > t - 3600_000);
+  if (recent.length >= config.web.searchPerHour) return false;
+  recent.push(t);
+  searchLog.set(sid, recent);
+  if (searchLog.size > 5000) searchLog.clear();
+  return true;
+}
 
 /**
  * Execute a tool. Returns { result, step } where `result` is the JSON handed back to the model/MCP client
@@ -46,16 +69,25 @@ const productView = (p) => ({ id: p.id, name: p.name, merchant: p.merchant, cate
  */
 export async function runTool(sid, name, input = {}) {
   try {
-    if (name === 'search_catalog') {
-      const max = Number.isFinite(input?.max_price_usd) ? Math.round(input.max_price_usd * 100) : undefined;
-      const products = searchProducts({ query: String(input?.query ?? ''), max_price_cents: max, category: input?.category }).map(productView);
-      return {
-        result: { products },
-        step: { tool: name, ok: true, text: `Searched "${String(input?.query ?? '').slice(0, 60)}"${max ? ` (up to ${money(max)})` : ''}: ${products.length} result${products.length === 1 ? '' : 's'}` },
-      };
+    if (name === 'search_products') {
+      const q = String(input?.query ?? '').slice(0, 120);
+      if (!searchAllowed(sid)) return { result: { error: 'Search limit reached for this hour.' }, step: { tool: name, ok: false, text: 'Search limit reached for this hour' } };
+      const max = Number.isFinite(input?.max_price_usd) && input.max_price_usd > 0 ? input.max_price_usd : undefined;
+      try {
+        const { offers, dropped } = await searchWeb({ query: q, max_price_usd: max, category: input?.category });
+        const m = await getMandate(sid);
+        const views = offers.map((o) => offerView(o, m)).sort((a, b) => Number(b.fits_mandate) - Number(a.fits_mandate) || a.price_usd - b.price_usd);
+        return {
+          result: { offers: views, ...(dropped.length ? { skipped: `${dropped.length} result(s) skipped because their price could not be verified` } : {}) },
+          step: { tool: name, ok: true, text: `Searched the web for "${q.slice(0, 60)}"${max ? ` (up to ${money(Math.round(max * 100))})` : ''}: ${offers.length} verified offer${offers.length === 1 ? '' : 's'} (${views.filter((v) => v.fits_mandate).length} fit the mandate)${dropped.length ? `, ${dropped.length} skipped` : ''}` },
+        };
+      } catch (e) {
+        if (!(e instanceof SearchUnavailable)) throw e;
+        return { result: { error: e.message }, step: { tool: name, ok: false, text: `Web search failed: ${e.message}` } };
+      }
     }
     if (name === 'propose_purchase') {
-      const res = await proposePurchase(sid, { product_id: input?.product_id, qty: input?.qty ?? 1, rationale: input?.rationale });
+      const res = await proposePurchase(sid, { product_id: input?.offer_id, qty: input?.qty ?? 1, rationale: input?.rationale });
       const p = res.purchase;
       if (res.allowed) {
         return {
@@ -85,4 +117,16 @@ export async function runTool(sid, name, input = {}) {
   } catch (e) {
     return { result: { error: e.message }, step: { tool: name, ok: false, text: `${name} failed: ${e.message}` } };
   }
+}
+
+/**
+ * Run the tool calls of one model turn. Web searches are slow (a provider call plus up to 14 page fetches), so
+ * several of them run concurrently; everything else (proposals, mandate reads) runs afterwards in the model's order,
+ * so budget reservations stay deterministic. Results come back in the original call order.
+ */
+export async function runToolBatch(sid, calls) {
+  const out = new Array(calls.length);
+  await Promise.all(calls.map(async (c, i) => { if (c.name === 'search_products') out[i] = await runTool(sid, c.name, c.input); }));
+  for (let i = 0; i < calls.length; i++) if (!out[i]) out[i] = await runTool(sid, calls[i].name, calls[i].input);
+  return out;
 }

@@ -1,5 +1,5 @@
 // Mandate as an MCP server (Streamable HTTP, JSON responses, stateless).
-// Any MCP-capable agent can search the catalog and *request* purchases; every request is checked by the same
+// Any MCP-capable agent can search the web for products and *request* purchases; every request is checked by the same
 // policy engine and, if allowed, becomes a PayPal order that the HUMAN approves in the Mandate UI.
 // Auth: `Authorization: Bearer mnd_...` (token created in the UI; it maps to one demo session/mandate).
 import express from 'express';
@@ -31,7 +31,7 @@ async function handle(sid, msg) {
           protocolVersion: SUPPORTED.includes(wanted) ? wanted : SUPPORTED[0],
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: 'mandate', title: 'Mandate - spend rails for AI agents', version: '1.0.0' },
-          instructions: 'You shop on behalf of a human under a spending mandate. Use search_catalog, then propose_purchase. You cannot spend money: allowed proposals become PayPal orders the human approves; blocked ones return a reason. Never try to bypass a block.',
+          instructions: 'You shop on behalf of a human under a spending mandate. Use search_products (live web search, server-verified prices), then propose_purchase with an offer_id. You cannot spend money: allowed proposals become PayPal orders the human approves; blocked ones return a reason. Never try to bypass a block.',
         },
       };
     }

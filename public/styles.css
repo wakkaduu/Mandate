@@ -124,3 +124,15 @@ dialog { width: min(520px, 92vw); }
   .banner { margin: 12px 12px 0; } .m-remaining { font-size: 28px; }
 }
 @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+
+.tag { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 99px; font-size: 11.5px; font-weight: 600; }
+.tag.ok { background: #e6f6ec; color: #136c35; }
+.tag.warn { background: #fff4d6; color: #7a5200; }
+.pmeta a { color: var(--brand); }
+
+#search-card { margin: 0 24px 16px; }
+#search-form { gap: 8px; }
+#search-form #search-max { max-width: 110px; }
+.results { display: grid; gap: 10px; margin-top: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.results .empty, .results .muted { grid-column: 1 / -1; }
+.pcard.blocked-ish { opacity: .85; border-style: dashed; }

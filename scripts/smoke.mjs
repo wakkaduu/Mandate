@@ -25,23 +25,26 @@ const health = await call('GET', '/healthz');
 ok('healthz', health.status === 200 && health.json?.ok);
 
 const cfg = (await call('GET', '/api/config')).json ?? {};
+ok('web search provider configured', cfg.webSearch === true, (cfg.searchProviders ?? []).join(',') || 'none: set TAVILY_API_KEY / SERPER_API_KEY / GEMINI_API_KEY');
 ok('config', Boolean(cfg.paypalMode), `paypal=${cfg.paypalMode} configured=${cfg.paypalConfigured} agent=${cfg.agentMode} webhooks=${cfg.webhooks}`);
 if (cfg.paypalMode === 'sandbox') ok('PayPal sandbox credentials configured', cfg.paypalConfigured === true);
 
-const chat = await call('POST', '/api/chat', { message: 'a desk lamp under $40 and a 4K monitor' });
+const chat = await call('POST', '/api/chat', { message: 'an LED desk lamp under $60' });
 ok('agent replies', chat.status === 200 && typeof chat.json?.reply === 'string', `mode=${chat.json?.mode} model=${chat.json?.model}`);
-if (cfg.paypalMode === 'sandbox') ok('a real AI model answered (not the rule-based fallback)', chat.json?.mode && chat.json.mode !== 'offline', 'if this fails: missing/exhausted AI key or quota');
+if (cfg.paypalMode === 'sandbox') ok('a real AI model answered (not the "AI unavailable" reply)', chat.json?.mode && chat.json.mode !== 'offline', 'if this fails: missing/exhausted AI key or quota');
+const search = (chat.json?.steps ?? []).find((x) => x.tool === 'search_products');
+ok('the agent searched the live web', Boolean(search?.ok), search?.text);
 
 const state = (await call('GET', '/api/state')).json ?? { purchases: [] };
-const lamp = state.purchases.find((p) => p.product_id === 'lamp-aurora');
-const monitor = state.purchases.find((p) => p.product_id === 'mon-4k');
-ok('policy blocks the 4K monitor before PayPal', monitor?.status === 'blocked' && !monitor?.paypal_order_id);
-ok('lamp became a PayPal order', lamp?.status === 'pending' && Boolean(lamp?.paypal_order_id), lamp?.paypal_order_id);
+const item = state.purchases.find((p) => p.status === 'pending');
+// Live results vary, so we only assert on what must hold for whatever the web returned.
+ok('every purchase has a retailer URL and a server-read price', state.purchases.every((p) => /^https?:\/\//.test(p.product_url ?? '') && p.price_verified === 1), `${state.purchases.length} purchase(s)`);
+ok('a proposed item became a PayPal order (or was blocked by policy before PayPal)', state.purchases.length > 0 && state.purchases.every((p) => (p.status === 'pending' && p.paypal_order_id) || (p.status === 'blocked' && !p.paypal_order_id)), state.purchases.map((p) => p.status).join(','));
 
-if (lamp) {
-  const early = await call('POST', `/api/purchases/${lamp.id}/capture`);
+if (item) {
+  const early = await call('POST', `/api/purchases/${item.id}/capture`);
   ok('capture before approval is refused (409)', early.status === 409, early.json?.error?.code);
-  const cancel = await call('POST', `/api/purchases/${lamp.id}/cancel`);
+  const cancel = await call('POST', `/api/purchases/${item.id}/cancel`);
   ok('cancel releases the budget', cancel.json?.purchase?.status === 'cancelled');
 }
 

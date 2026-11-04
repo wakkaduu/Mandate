@@ -59,6 +59,19 @@
     </section>
   </main>
 
+  <section class="card" aria-labelledby="h-search" id="search-card">
+    <div class="card-head">
+      <h2 id="h-search">Search the web yourself</h2>
+      <span class="muted">Works even when the AI is unavailable. Every request still goes through your mandate and PayPal approval.</span>
+    </div>
+    <form id="search-form" class="chat-form" autocomplete="off">
+      <input id="search-input" type="text" minlength="2" maxlength="120" placeholder="e.g. standing desk, noise cancelling headphones" aria-label="Search products on the web" required>
+      <input id="search-max" type="number" min="1" max="10000" step="1" placeholder="Max $" aria-label="Maximum price in US dollars">
+      <button class="btn primary" id="search-btn" type="submit">Search</button>
+    </form>
+    <div id="search-results" class="results" aria-live="polite"></div>
+  </section>
+
   <section class="card ledger" aria-labelledby="h-ledger">
     <div class="card-head">
       <h2 id="h-ledger">Ledger</h2>
@@ -91,7 +104,7 @@
   <dialog id="dlg-connect" aria-labelledby="connect-title">
     <div class="dlg-body">
       <h3 id="connect-title">Connect your own agent</h3>
-      <p class="muted">Mandate speaks <strong>MCP</strong>. Point any MCP-capable agent (Claude Code, Claude Desktop via <code>mcp-remote</code>, your own) at this server and it can search and <em>request</em> purchases. Every request still goes through your mandate, and you still approve each one with PayPal here.</p>
+      <p class="muted">Mandate speaks <strong>MCP</strong>. Point any MCP-capable agent (Claude Code, Claude Desktop via <code>mcp-remote</code>, your own) at this server and it can search the web and <em>request</em> purchases. Every request still goes through your mandate, and you still approve each one with PayPal here.</p>
       <div id="connect-empty">
         <button class="btn primary" id="btn-gen">Generate connection token</button>
       </div>
@@ -99,7 +112,7 @@
         <label>Server URL <span class="copy-row"><input id="c-url" readonly><button class="btn small" type="button" data-copy="c-url">Copy</button></span></label>
         <label>Bearer token <span class="muted">(shown once)</span> <span class="copy-row"><input id="c-token" readonly><button class="btn small" type="button" data-copy="c-token">Copy</button></span></label>
         <label>Claude Code <span class="copy-row"><input id="c-cmd" readonly><button class="btn small" type="button" data-copy="c-cmd">Copy</button></span></label>
-        <p class="hint">Tools: <code>search_catalog</code>, <code>propose_purchase</code>, <code>get_mandate</code>. Token is stored hashed; generating a new one revokes the old one.</p>
+        <p class="hint">Tools: <code>search_products</code>, <code>propose_purchase</code>, <code>get_mandate</code>. Token is stored hashed; generating a new one revokes the old one.</p>
       </div>
       <div class="dlg-actions">
         <button class="btn ghost danger" id="btn-revoke" hidden>Revoke access</button>

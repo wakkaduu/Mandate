@@ -1,8 +1,9 @@
 // Domain service: sessions, mandates, purchase lifecycle, PayPal reconciliation.
-// Every state change is audited. Amounts come only from the catalog (server-side).
+// Every state change is audited. Amounts come only from stored offers (server-verified web prices).
 import { randomUUID, createHash, randomBytes } from 'node:crypto';
 import { db, tx } from './db.js';
-import { DEFAULT_MANDATE, PRODUCTS } from './catalog.js';
+import { DEFAULT_MANDATE, CATEGORIES } from './categories.js';
+import { getOffer } from './offers.js';
 import { COMMITTED_STATUSES, evaluate, centsToValue, money, MAX_QTY } from './policy.js';
 import * as paypal from './paypal.js';
 import { config } from './config.js';
@@ -115,57 +116,8 @@ export async function updateMandate(sid, input) {
   return getMandate(sid);
 }
 
-// The catalog is code (src/catalog.js): no DB round trips, nothing to seed on serverless cold starts.
 export function listCategories() {
-  return [...new Set(PRODUCTS.map((p) => p.category))].sort();
-}
-
-// ---------------------------------------------------------------- catalog
-// Query understanding is deliberately small and deterministic: normalise (plurals, a few synonyms), ignore filler
-// words, and score name/head-noun/tag hits. Shared by the Claude `search_catalog` tool, the offline agent and MCP.
-const SYNONYMS = { light: 'lamp', lighting: 'lamp', illuminat: 'lamp', screen: 'monitor', display: 'monitor', headset: 'headphone', earphone: 'headphone', cushion: 'mat', pad: 'mat', laptop: 'hub', adapter: 'hub', dongle: 'hub' };
-const FILLER = new Set(['a', 'an', 'the', 'my', 'me', 'i', 'for', 'to', 'of', 'and', 'with', 'some', 'any', 'new', 'desk', 'something', 'thing', 'cheap', 'cheapest', 'best', 'good', 'nice', 'big', 'bigger', 'large', 'larger', 'please', 'under', 'below', 'up']);
-const normToken = (w) => {
-  let t = w.toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) t = t.slice(0, -1);
-  return SYNONYMS[t] ?? t;
-};
-const tokens = (text) => String(text).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(normToken);
-const headNoun = (name) => tokens(name.replace(/\(.*?\)/g, ' ')).at(-1);
-
-export function searchProducts({ query = '', max_price_cents, category } = {}) {
-  const rows = [...PRODUCTS].sort((a, b) => a.price_cents - b.price_cents);
-  const q = [...new Set(tokens(query).filter((t) => t.length > 1 && !FILLER.has(t)))];
-  const scored = rows
-    .filter((p) => (!category || p.category === category) && (!max_price_cents || p.price_cents <= max_price_cents))
-    .map((p) => {
-      if (!q.length) return { p, score: 1 };
-      const name = new Set(tokens(p.name));
-      const tags = new Set(tokens(`${p.tags} ${p.merchant}`));
-      const desc = new Set(tokens(p.description));
-      const head = headNoun(p.name);
-      let score = 0;
-      let strong = false;
-      for (const t of q) {
-        const hit = (set) => set.has(t) || (t.length >= 4 && [...set].some((x) => x.startsWith(t)));
-        if (hit(name)) { score += 3; strong = true; }
-        if (t === head) score += 2;
-        if (hit(tags)) { score += 2; strong = true; }
-        if (hit(desc)) score += 0.5;
-      }
-      return { p, score: strong ? score : 0 };
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score || a.p.price_cents - b.p.price_cents);
-  return scored.slice(0, 8).map((x) => x.p);
-}
-
-export function allProducts() {
-  return [...PRODUCTS].sort((a, b) => a.category.localeCompare(b.category) || a.price_cents - b.price_cents);
-}
-
-export function getProduct(id) {
-  return PRODUCTS.find((p) => p.id === String(id));
+  return [...CATEGORIES];
 }
 
 // ---------------------------------------------------------------- audit & chat
@@ -249,7 +201,7 @@ async function expireStale(sid, exec) {
  */
 export async function proposePurchase(sid, { product_id, qty = 1, rationale = '' }) {
   qty = Number(qty);
-  const product = getProduct(product_id);
+  const product = await getOffer(product_id);
   const id = randomUUID();
   const rat = String(rationale || '').slice(0, 300);
 
@@ -262,7 +214,7 @@ export async function proposePurchase(sid, { product_id, qty = 1, rationale = ''
       : null;
     // Pace: purchase requests that passed policy in the last hour (blocked/failed ones don't count against the agent).
     const recent = (await t.get("SELECT COUNT(*) AS c FROM purchases WHERE session_id=? AND created_at > ? AND status NOT IN ('blocked','failed')", [sid, now() - 3600_000])).c;
-    const verdict = evaluate(m, product, qty, { committed_cents: m.committed_cents, open_same_product: Boolean(open), now: now(), recent_count: recent });
+    const verdict = evaluate(m, product, qty, { stale: product?.stale, committed_cents: m.committed_cents, open_same_product: Boolean(open), now: now(), recent_count: recent });
     const stamp = now();
     const base = {
       product_id: product?.id ?? String(product_id).slice(0, 64),
@@ -272,9 +224,9 @@ export async function proposePurchase(sid, { product_id, qty = 1, rationale = ''
       qty: Number.isInteger(qty) && qty > 0 ? Math.min(qty, MAX_QTY) : 1,
     };
     const amount = verdict.amount_cents ?? (product ? product.price_cents * base.qty : 0);
-    await t.run(`INSERT INTO purchases (id,session_id,product_id,product_name,merchant,category,qty,amount_cents,status,reason,rationale,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id, sid, base.product_id, base.product_name, base.merchant, base.category, base.qty, amount,
+    await t.run(`INSERT INTO purchases (id,session_id,product_id,product_name,merchant,category,qty,amount_cents,product_url,price_verified,status,reason,rationale,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, sid, base.product_id, base.product_name, base.merchant, base.category, base.qty, amount, product?.url ?? null, product?.price_verified ? 1 : 0,
         verdict.ok ? STATUS.RESERVING : STATUS.BLOCKED, verdict.ok ? null : `${verdict.code}: ${verdict.reason}`, rat, stamp, stamp]);
     if (verdict.ok) await audit(sid, id, 'policy.approved', `${product.name} x${qty} = ${money(verdict.amount_cents)} within mandate`, t);
     else await audit(sid, id, 'policy.blocked', `${verdict.code} - ${verdict.reason}`, t);

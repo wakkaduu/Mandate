@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 // Verifies the Claude tool-use loop end to end against a local stub of the Messages API
 // (no network, no key needed). It checks request shape, tool execution through the policy gate,
-// and graceful fallback to the offline agent when the model API errors.
+// and a clear 'AI unavailable' reply (never a scripted shopper) when the model API errors.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -23,13 +23,13 @@ const stub = http.createServer((req, res) => {
     };
     if (Array.isArray(last.content) && last.content[0]?.type === 'tool_result') {
       const outs = last.content.map((c) => JSON.parse(c.content));
-      return reply([{ type: 'text', text: `Results: ${outs.map((o) => o.status ?? (o.products ? `found ${o.products.length}` : 'ok')).join(', ')}` }], 'end_turn');
+      return reply([{ type: 'text', text: `Results: ${outs.map((o) => o.status ?? 'ok').join(', ')}` }], 'end_turn');
     }
     return reply([
       { type: 'text', text: 'Let me look.' },
-      { type: 'tool_use', id: 'tu_1', name: 'search_catalog', input: { query: 'lamp', max_price_usd: 40 } },
-      { type: 'tool_use', id: 'tu_2', name: 'propose_purchase', input: { product_id: 'lamp-aurora', qty: 1, rationale: 'Cheapest lamp.' } },
-      { type: 'tool_use', id: 'tu_3', name: 'propose_purchase', input: { product_id: 'mon-4k', qty: 1, rationale: 'Asked for 4K.' } },
+      { type: 'tool_use', id: 'tu_1', name: 'get_mandate', input: {} },
+      { type: 'tool_use', id: 'tu_2', name: 'propose_purchase', input: { offer_id: 'lamp-aurora', qty: 1, rationale: 'Cheapest lamp.' } },
+      { type: 'tool_use', id: 'tu_3', name: 'propose_purchase', input: { offer_id: 'mon-4k', qty: 1, rationale: 'Asked for 4K.' } },
     ], 'tool_use');
   });
 });
@@ -42,6 +42,8 @@ delete process.env.GEMINI_API_KEY;
 process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
 process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${stub.address().port}`;
 
+const { seedOffers } = await import('./fixtures.js');
+await seedOffers(); // stand-ins for server-verified web offers
 const { start } = await import('../src/server.js');
 const server = await start(0);
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -61,7 +63,7 @@ test('Claude tool loop: proposals go through the policy gate; blocked ones never
   const r = await post(cookie, '/api/chat', { message: 'a lamp and a 4K monitor' });
   assert.equal(r.status, 200);
   assert.equal(r.body.mode, 'claude');
-  assert.match(r.body.reply, /awaiting_human_approval, blocked/);
+  assert.match(r.body.reply, /ok, awaiting_human_approval, blocked/);
 
   const s = await get(cookie, '/api/state');
   assert.equal(s.purchases.find((p) => p.product_id === 'lamp-aurora').status, 'pending');
@@ -71,7 +73,7 @@ test('Claude tool loop: proposals go through the policy gate; blocked ones never
 
   // request shape: tools declared, system prompt present, every tool_use answered in ONE user message
   const first = requests[0];
-  assert.deepEqual(first.tools.map((t) => t.name), ['search_catalog', 'propose_purchase', 'get_mandate']);
+  assert.deepEqual(first.tools.map((t) => t.name), ['search_products', 'propose_purchase', 'get_mandate']);
   assert.ok(first.system.includes('MANDATE'));
   const second = requests[1];
   const results = second.messages[second.messages.length - 1].content;
@@ -79,13 +81,14 @@ test('Claude tool loop: proposals go through the policy gate; blocked ones never
   assert.deepEqual(results.map((x) => x.tool_use_id), ['tu_1', 'tu_2', 'tu_3']);
 });
 
-test('model API failure falls back to the offline agent instead of erroring', async () => {
+test('model API failure gives an honest unavailable reply instead of erroring or faking a shopper', async () => {
   mode = 'error';
   const cookie = await session();
   const r = await post(cookie, '/api/chat', { message: 'a pothos plant' });
   assert.equal(r.status, 200);
   assert.equal(r.body.mode, 'offline');
-  assert.match(r.body.reply, /rule-based agent handled this/);
+  assert.match(r.body.reply, /AI model is unavailable/);
+  assert.match(r.body.reply, /Nothing was bought/);
   const s = await get(cookie, '/api/state');
-  assert.equal(s.purchases[0].status, 'pending');
+  assert.equal(s.purchases.length, 0);
 });

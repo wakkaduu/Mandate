@@ -89,7 +89,7 @@ export function createOrder(purchase) {
         reference_id: purchase.id,
         custom_id: purchase.id,
         invoice_id: `MANDATE-${purchase.id}`,
-        description: `${purchase.product_name} (agent purchase)`.slice(0, 127),
+        description: `${purchase.product_name} from ${purchase.merchant} (agent purchase)`.slice(0, 127),
         amount: {
           currency_code: currency,
           value: total,
@@ -100,6 +100,7 @@ export function createOrder(purchase) {
           sku: purchase.product_id.slice(0, 127),
           quantity: String(purchase.qty),
           category: 'PHYSICAL_GOODS',
+          ...(purchase.product_url && purchase.product_url.length <= 2048 ? { url: purchase.product_url } : {}),
           unit_amount: { currency_code: currency, value: unit },
         }],
       }],

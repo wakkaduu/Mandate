@@ -3,7 +3,7 @@
 > Hackathon: PayPal AI Hackathon (Devpost). Submission period ends **Thu Nov 12, 2026, 12:00 pm PT**. Judging criteria (equal weight): Technological Implementation, Design, Potential Impact, Innovation/Idea, Presentation. Stage 1 is pass/fail on "PayPal integration is central + AI tool used".
 
 ## Product summary
-**Mandate** lets a person give an AI shopping agent a *spending mandate* (budget, per-purchase cap, allowed categories). The agent searches a catalog and requests purchases. A deterministic policy engine approves or blocks every request **before PayPal is ever called**. Approved requests become real PayPal orders created server-side; the human approves each with one tap on the PayPal button, the server captures, and a live ledger (AG Grid) records every decision, including blocked ones.
+**Mandate** lets a person give an AI shopping agent a *spending mandate* (budget, per-purchase cap, allowed categories). The agent searches the live web and requests purchases. A deterministic policy engine approves or blocks every request **before PayPal is ever called**. Approved requests become real PayPal orders created server-side; the human approves each with one tap on the PayPal button, the server captures, and a live ledger (AG Grid) records every decision, including blocked ones.
 
 The pitch: *agents are about to spend money on our behalf; PayPal is the trust layer that makes it safe.* Autonomy for the agent, consent for the human, receipts for everyone.
 

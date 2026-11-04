@@ -14,7 +14,8 @@
     "test": "node --test --no-warnings \"test/*.test.js\"",
     "smoke": "node scripts/smoke.mjs",
     "postinstall": "node scripts/copy-vendor.mjs",
-    "build": "node scripts/copy-vendor.mjs"
+    "build": "node scripts/copy-vendor.mjs",
+    "warm": "node scripts/warm-cache.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

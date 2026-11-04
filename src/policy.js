@@ -12,14 +12,15 @@ export const COMMITTED_STATUSES = ['reserving', 'pending', 'capturing', 'capture
  * @param {{budget_cents:number, per_item_cap_cents:number, categories:string[], expires_at?:number|null, max_per_hour?:number|null}} mandate
  * @param {{id:string, category:string, price_cents:number, name:string}|undefined} product
  * @param {number} qty
- * @param {{committed_cents:number, open_same_product:boolean, now?:number, recent_count?:number}} ctx
+ * @param {{committed_cents:number, open_same_product:boolean, now?:number, recent_count?:number, stale?:boolean}} ctx
  * @returns {{ok:true, amount_cents:number} | {ok:false, code:string, reason:string, amount_cents?:number}}
  */
 export function evaluate(mandate, product, qty, ctx) {
-  if (!product) return { ok: false, code: 'UNKNOWN_PRODUCT', reason: 'That product is not in the catalog.' };
+  if (!product) return { ok: false, code: 'UNKNOWN_PRODUCT', reason: 'That offer does not exist. Search for the product first and use the offer_id from the results.' };
   if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) {
     return { ok: false, code: 'BAD_QUANTITY', reason: `Quantity must be a whole number between 1 and ${MAX_QTY}.` };
   }
+  if (ctx.stale) return { ok: false, code: 'STALE_PRICE', reason: 'That price was checked too long ago and may have changed. Search for the product again.', amount_cents: product.price_cents * qty };
   const amount = product.price_cents * qty;
   const fail = (code, reason) => ({ ok: false, code, reason, amount_cents: amount });
 

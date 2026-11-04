@@ -38,19 +38,20 @@ test('rejects missing/invalid tokens with 401 + WWW-Authenticate', async () => {
   assert.equal((await fetch(url, { method: 'GET', headers: { Authorization: `Bearer ${token}` } })).status, 405);
 });
 
-test('official MCP client: initialize, list tools, search, propose (policy gate applies), get_mandate', async () => {
+test('official MCP client: initialize, list tools, search (unavailable w/o key), propose (policy gate applies), get_mandate', async () => {
   const c = await mcp();
   assert.equal(c.getServerVersion().name, 'mandate');
   const { tools } = await c.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ['get_mandate', 'propose_purchase', 'search_catalog']);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ['get_mandate', 'propose_purchase', 'search_products']);
   assert.ok(tools.every((t) => t.inputSchema?.type === 'object'));
 
-  const found = parse(await c.callTool({ name: 'search_catalog', arguments: { query: 'lamp', max_price_usd: 40 } }));
-  assert.equal(found.products[0].id, 'lamp-aurora');
+  // No search provider key in this test: web search must fail loudly, not invent products.
+  const found = parse(await c.callTool({ name: 'search_products', arguments: { query: 'lamp', max_price_usd: 40 } }));
+  assert.match(found.error, /not configured/);
 
-  const ok = parse(await c.callTool({ name: 'propose_purchase', arguments: { product_id: 'lamp-aurora', rationale: 'Cheapest lamp' } }));
+  const ok = parse(await c.callTool({ name: 'propose_purchase', arguments: { offer_id: 'lamp-aurora', rationale: 'Cheapest lamp' } }));
   assert.equal(ok.status, 'awaiting_human_approval');
-  const blocked = parse(await c.callTool({ name: 'propose_purchase', arguments: { product_id: 'mon-4k', rationale: 'Wants 4K' } }));
+  const blocked = parse(await c.callTool({ name: 'propose_purchase', arguments: { offer_id: 'mon-4k', rationale: 'Wants 4K' } }));
   assert.equal(blocked.status, 'blocked');
   assert.equal(blocked.code, 'OVER_ITEM_CAP');
   const m = parse(await c.callTool({ name: 'get_mandate', arguments: {} }));

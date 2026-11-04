@@ -21,11 +21,18 @@ let sandboxHintShown = false;
 let chatBusy = false; // pause background polling while the agent works so the progress bubble is not replaced
 let gridP; let gridA;
 const SUGGESTIONS = [
-  'Set up my desk: a lamp under $40, a mechanical keyboard and a 4K monitor',
-  'Add a felt desk mat and a USB-C hub',
-  'Buy the premium architect lamp',
-  'An ergonomic chair',
+  'Find me an LED desk lamp under $40',
+  'A mechanical keyboard under $90 and a large desk mat',
+  'A 27-inch 4K monitor',
+  'Get a USB-C hub with HDMI',
 ];
+
+// Product links come from the open web (the server only stores http(s) URLs, but never trust a link blindly).
+const safeHref = (u) => (/^https?:\/\//i.test(String(u ?? '')) ? u : null);
+const sourceLine = (p) => h('div', { class: 'pmeta' },
+  `${p.merchant} - ${p.category}`,
+  safeHref(p.product_url) ? [' - ', h('a', { href: safeHref(p.product_url), target: '_blank', rel: 'noopener noreferrer' }, 'view product page')] : null,
+  h('span', { class: `tag ${p.price_verified ? 'ok' : 'warn'}`, title: p.price_verified ? 'The server read this price from the retailer\'s own page' : 'Price comes from the search result and was not confirmed on the retailer page' }, p.price_verified ? 'price verified' : 'price unverified'));
 
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(path, {
@@ -196,13 +203,13 @@ function renderApprovals(purchases) {
 
   const root = $('approvals');
   const kids = [];
-  if (!pending.length) kids.push(h('div', { class: 'empty' }, 'Nothing waiting. Ask the agent to buy something - allowed purchases land here for one-tap PayPal approval.'));
+  if (!pending.length) kids.push(h('div', { class: 'empty' }, 'Nothing waiting. Ask the agent to find and buy something from the web - allowed purchases land here for one-tap PayPal approval.'));
   for (const p of pending) {
     const slot = h('div', { class: 'pp-slot' });
     kids.push(h('div', { class: 'pcard pending' },
       h('div', { class: 'prow' }, h('span', { class: 'pname' }, `${p.product_name}${p.qty > 1 ? ` x${p.qty}` : ''}`), h('span', { class: 'pamt' }, usd(p.amount_cents))),
-      h('div', { class: 'pmeta' }, `${p.merchant} - ${p.category}`),
-      p.rationale ? h('div', { class: 'why' }, `Agent: ${p.rationale}`) : null,
+      sourceLine(p),
+      p.rationale ? h('div', { class: 'why' }, /^Requested by you/.test(p.rationale) ? p.rationale : `Agent: ${p.rationale}`) : null,
       policyChecks(p),
       p.status === 'pending' ? slot : h('div', { class: 'pmeta' }, p.reason || 'Processing payment...'),
       p.status === 'pending' ? h('div', { class: 'actions' }, h('button', { class: 'btn small ghost danger', onclick: () => simple(`/api/purchases/${p.id}/cancel`, 'Dismissed. Budget released.') }, 'Dismiss')) : null,
@@ -241,7 +248,9 @@ function ensureGrids() {
     columnDefs: [
       { field: 'created_at', headerName: 'Time', valueFormatter: timeFmt, width: 110, sort: 'desc' },
       { field: 'product_name', headerName: 'Item', flex: 1.4, minWidth: 160 },
-      { field: 'merchant', width: 120 },
+      { field: 'merchant', width: 130 },
+      { field: 'product_url', headerName: 'Link', width: 90, sortable: false, filter: false,
+        cellRenderer: (params) => (safeHref(params.value) ? h('a', { href: safeHref(params.value), target: '_blank', rel: 'noopener noreferrer' }, 'open') : '') },
       { field: 'qty', width: 80 },
       { field: 'amount_cents', headerName: 'Amount', valueFormatter: (p) => usd(p.value), width: 100, type: 'rightAligned' },
       { field: 'status', cellRenderer: statusRenderer, width: 120 },
@@ -289,9 +298,9 @@ async function send(text) {
   const box = $('messages');
   const who = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode] ?? 'The agent';
   const started = Date.now();
-  const thinking = h('div', { class: 'msg assistant thinking', id: 'thinking' }, `${who} is reading your request and checking your mandate...`);
+  const thinking = h('div', { class: 'msg assistant thinking', id: 'thinking' }, `${who} is searching the web and checking your mandate...`);
   const live = setInterval(refresh, 2000); // approvals appear as the agent proposes them
-  const tick = setInterval(() => { thinking.textContent = `${who} is reading your request and checking your mandate... ${Math.round((Date.now() - started) / 1000)}s`; }, 1000);
+  const tick = setInterval(() => { thinking.textContent = `${who} is searching the web and checking your mandate... ${Math.round((Date.now() - started) / 1000)}s`; }, 1000);
   box.append(h('div', { class: 'msg user' }, msg), thinking);
   box.scrollTop = box.scrollHeight;
   try {
@@ -371,6 +380,56 @@ async function revokeToken() {
   try { await api('/api/connect', { method: 'DELETE' }); $('dlg-connect').close(); toast('External agent access revoked.'); await refresh(); } catch (e) { toast(e.message, true); }
 }
 
+// ------------------------------------------------------------------ manual web search
+function renderResults(offers, skipped) {
+  const box = $('search-results');
+  if (!offers.length) {
+    box.replaceChildren(h('div', { class: 'empty' }, 'No product pages with a readable price turned up for that. Try a more specific product name.'));
+    return;
+  }
+  const cards = offers.map((o) => h('div', { class: `pcard${o.fits_mandate ? '' : ' blocked-ish'}` },
+    h('div', { class: 'prow' }, h('span', { class: 'pname' }, o.title), h('span', { class: 'pamt' }, usd(Math.round(o.price_usd * 100)))),
+    h('div', { class: 'pmeta' },
+      `${o.merchant} - ${o.category}`,
+      safeHref(o.url) ? [' - ', h('a', { href: safeHref(o.url), target: '_blank', rel: 'noopener noreferrer' }, 'view product page')] : null,
+      h('span', { class: `tag ${o.price_verified ? 'ok' : 'warn'}` }, o.price_verified ? 'price verified' : 'price unverified'),
+      h('span', { class: `tag ${o.fits_mandate ? 'ok' : 'warn'}`, title: o.mandate_issue || 'Within your mandate' }, o.fits_mandate ? 'fits mandate' : 'outside mandate')),
+    o.mandate_issue ? h('div', { class: 'pmeta' }, o.mandate_issue.replace(/^[A-Z_]+: /, '')) : null,
+    h('div', { class: 'actions' }, h('button', { class: 'btn small primary', type: 'button', onclick: (e) => requestOffer(o, e.currentTarget) }, 'Request purchase')),
+  ));
+  if (skipped) cards.push(h('div', { class: 'muted' }, skipped));
+  box.replaceChildren(...cards);
+}
+
+async function requestOffer(o, btn) {
+  btn.disabled = true;
+  try {
+    const r = await api(`/api/offers/${encodeURIComponent(o.offer_id)}/request`, { method: 'POST', body: { qty: 1 } });
+    toast(r.allowed ? `Queued "${o.title.slice(0, 40)}" - approve it under Approvals.` : (r.reason || 'Blocked by your mandate.'), !r.allowed);
+  } catch (e) { toast(e.message, true); }
+  btn.disabled = false;
+  await refresh();
+}
+
+async function runSearch(e) {
+  e.preventDefault();
+  const query = $('search-input').value.trim();
+  if (query.length < 2) return;
+  const max = Number($('search-max').value);
+  const btn = $('search-btn');
+  btn.disabled = true;
+  btn.textContent = 'Searching...';
+  $('search-results').replaceChildren(h('div', { class: 'muted' }, 'Searching the web and checking each price on the retailer page (about 10 seconds)...'));
+  try {
+    const r = await api('/api/search', { method: 'POST', body: { query, ...(max > 0 ? { max_price_usd: max } : {}) } });
+    renderResults(r.offers, r.skipped);
+  } catch (err) {
+    $('search-results').replaceChildren(h('div', { class: 'empty' }, err.message));
+  }
+  btn.disabled = false;
+  btn.textContent = 'Search';
+}
+
 // ------------------------------------------------------------------ boot
 async function boot() {
   cfg = await api('/api/config');
@@ -379,12 +438,15 @@ async function boot() {
   pp.classList.add(cfg.paypalMode === 'mock' || !cfg.paypalConfigured ? 'warn' : 'ok');
   const ag = $('pill-agent');
   const brand = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode];
-  ag.textContent = brand ? `AI: ${brand} (${cfg.model})` : 'Agent: rule-based (no AI key)';
+  ag.textContent = brand ? `AI: ${brand} (${cfg.model})` : 'Agent: no AI key';
   ag.classList.add(brand ? 'ok' : 'warn');
-  $('agent-note').textContent = brand ? `${brand} language model` : 'rule-based (no AI key configured)';
+  $('agent-note').textContent = brand ? `${brand} + web search (${(cfg.searchProviders ?? []).join(', ') || 'none'})` : 'no AI key configured';
   const notices = [];
   if (cfg.paypalMode === 'sandbox' && !cfg.paypalConfigured) {
     notices.push('PayPal sandbox credentials are missing: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (see README). The agent and policy engine still work, but orders cannot be created.');
+  }
+  if (!cfg.webSearch) {
+    notices.push('Live product search is off: set TAVILY_API_KEY (free tier), SERPER_API_KEY or GEMINI_API_KEY. A search provider finds product pages; the server verifies each price itself.');
   }
   if (cfg.persistent === false) {
     notices.push('This deployment has no persistent database (set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN): your session and purchases can disappear between requests.');
@@ -397,6 +459,8 @@ async function boot() {
 
   $('chips').replaceChildren(...SUGGESTIONS.map((s) => h('button', { class: 'chip', type: 'button', onclick: () => send(s) }, s)));
   $('chat-form').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+  $('search-form').addEventListener('submit', runSearch);
+  if (!cfg.webSearch) $('search-card').hidden = true;
   $('btn-edit').addEventListener('click', openEditor);
   $('btn-connect').addEventListener('click', () => openConnect().catch((e) => toast(e.message, true)));
   $('btn-gen').addEventListener('click', generateToken);

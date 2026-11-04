@@ -2,10 +2,11 @@ import express from 'express';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { config, paypalConfigured } from './config.js';
+import { config, paypalConfigured, searchProviders } from './config.js';
 import { openDb, db, closeDb } from './db.js';
 import * as svc from './purchases.js';
 import { AppError } from './purchases.js';
+import { runTool } from './tools.js';
 import { chat, agentMode, agentModel } from './agent.js';
 import { verifyWebhook } from './paypal.js';
 import { createMockPayPal } from './mock-paypal.js';
@@ -117,6 +118,8 @@ export function createApp() {
       paypalConfigured: paypalConfigured(),
       currency: config.paypal.currency,
       agentMode: agentMode(),
+      webSearch: searchProviders().length > 0,
+      searchProviders: searchProviders(),
       model: agentModel(),
       webhooks: Boolean(config.paypal.webhookId),
       persistent: config.dbPersistent,
@@ -136,8 +139,6 @@ export function createApp() {
   app.get('/api/connect', wrap(async (req, res) => res.json({ url: mcpUrl(req), connected: await svc.hasMcpToken(req.sid) })));
   app.post('/api/connect', wrap(async (req, res) => res.json({ url: mcpUrl(req), token: await svc.issueMcpToken(req.sid), connected: true })));
   app.delete('/api/connect', wrap(async (req, res) => { await svc.revokeMcpToken(req.sid); res.json({ connected: false }); }));
-
-  app.get('/api/products', (_req, res) => res.json({ products: svc.allProducts() }));
 
   app.put('/api/mandate', wrap(async (req, res) => {
     const b = req.body ?? {};
@@ -160,6 +161,25 @@ export function createApp() {
     } finally {
       busy.delete(req.sid);
     }
+  }));
+
+  // Manual path: the human searches the web themselves (works even when the AI model is down) and asks for a
+  // purchase. It goes through exactly the same offers, policy gate and PayPal approval as an agent's request.
+  const searchLimit = limiter(10, 60_000);
+  app.post('/api/search', wrap(async (req, res) => {
+    if (!searchLimit(req.sid) || !globalChatLimit('search')) throw new AppError(429, 'RATE_LIMITED', 'Too many searches - give it a moment.');
+    const query = typeof req.body?.query === 'string' ? req.body.query.trim() : '';
+    if (query.length < 2 || query.length > 120) throw new AppError(400, 'BAD_INPUT', 'Search text must be 2 to 120 characters.');
+    const max = req.body?.max_price_usd;
+    if (max !== undefined && max !== null && !(typeof max === 'number' && max > 0 && max <= 10000)) throw new AppError(400, 'BAD_INPUT', 'Maximum price must be between $0 and $10,000.');
+    const { result, step } = await runTool(req.sid, 'search_products', { query, max_price_usd: max ?? undefined });
+    if (result.error) throw new AppError(503, 'SEARCH_UNAVAILABLE', result.error);
+    await svc.audit(req.sid, null, 'search.manual', `You: ${step.text}`);
+    res.json({ offers: result.offers, skipped: result.skipped ?? null });
+  }));
+  app.post('/api/offers/:id/request', wrap(async (req, res) => {
+    const qty = Number.isInteger(req.body?.qty) ? req.body.qty : 1;
+    res.json(await svc.proposePurchase(req.sid, { product_id: req.params.id, qty, rationale: 'Requested by you from the search results.' }));
   }));
 
   app.post('/api/purchases/:id/capture', wrap(async (req, res) => res.json(await svc.capturePurchase(req.sid, req.params.id))));

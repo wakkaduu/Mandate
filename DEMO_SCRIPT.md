@@ -6,7 +6,7 @@ Record the **deployed** app (or localhost) in **PayPal sandbox mode with a real 
 |---|---|---|---|
 | 0:00-0:12 | **Hook** | Title card, then app | "AI agents are starting to spend money for us. A credit card number is reckless; approving every click defeats the point. This is Mandate: spend rails for AI agents, settled by PayPal." |
 | 0:12-0:25 | **The mandate** | Mandate card: $300 budget, $120 cap, categories, pace, expiry | "I give my agent a mandate: three hundred dollars, no single purchase over one-twenty, only office, electronics and home, six requests an hour. Enforced by code on the server, not by a prompt." |
-| 0:25-0:55 | **Agent request** | Click the first suggestion chip; open "Agent activity"; Approvals fill | "I ask for a desk lamp under forty, a mechanical keyboard and a 4K monitor. Gemini reads that, searches the catalog and requests each one. Lamp and keyboard pass. The monitor is four twenty-nine, over my cap, so it is blocked before PayPal is ever called, with the exact rule that failed." |
+| 0:25-0:55 | **Agent request** | Click the first suggestion chip (e.g. a desk lamp under $40 - the agent searches the live web); open "Agent activity"; Approvals fill | "I ask for a desk lamp under forty, a mechanical keyboard and a 4K monitor. Gemini reads that, searches the web, the server verifies each price on the retailer page, and the agent requests it. Lamp and keyboard pass. The monitor is four twenty-nine, over my cap, so it is blocked before PayPal is ever called, with the exact rule that failed." |
 | 0:55-1:30 | **PayPal approval** | Click the PayPal button on the lamp, sign in as the sandbox buyer, approve; toast; budget bar turns green | "Allowed purchases become real PayPal orders, created on the server with prices from the database, never from the browser or the model. I approve with one tap. The server captures the payment, re-checks the amount, and my budget updates." |
 | 1:30-1:50 | **Failure handling** | Dismiss the keyboard card; budget released; click Refund on the lamp | "Cancel, decline or let an order expire and the funds are released. Double clicks are idempotent, and any captured purchase can be refunded through PayPal in one click." |
 | 1:50-2:10 | **Ledger** | Audit trail tab in AG Grid; sort/filter by type | "Every policy decision, PayPal order and capture id, webhook confirmation and refund lands in this AG Grid ledger. Blocked purchases are first-class events, so you see exactly what the agent tried." |
@@ -16,3 +16,9 @@ Record the **deployed** app (or localhost) in **PayPal sandbox mode with a real 
 Aim for 2:45 and **never exceed 3:00**. Rehearse the MCP scene beforehand; if it runs long, cut it to a 10-second clip. Official Rules (section 4) require the video to be public on YouTube, show the project working, and contain no third-party trademarks or copyrighted music: use no background music, and keep logos out of frame other than PayPal's own buttons and the sponsor tools you use.
 
 Backup if the PayPal popup is slow: pre-approve one order off camera and show only the capture result; never fake a payment. If the AI key is not set, say "built-in agent" in scene 3 rather than claiming Claude.
+
+
+## Before recording / during judging
+- Run `npm run warm -- https://<host>` first: it caches the demo searches (3 h on Render, see `WEB_SEARCH_CACHE_MINUTES`), so they return instantly. Needs Turso so the cache survives restarts.
+- Gemini's API can be slow or rate-limited. If the chat is slow or answers "AI unavailable", use the **Search the web yourself** panel: same verified offers, same mandate gate, same PayPal approval, no model involved.
+- Record when `npm run smoke` is green, and use short prompts (one or two items): every extra item adds a web search.

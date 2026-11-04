@@ -52,7 +52,7 @@ The assistant, the manual search and any external agent all reach money through 
 | Large payment by mistake | Typed amount before the PayPal button appears; enforced again at capture |
 | Replayed or forged payment events | Signed webhook verification against the raw body, deduplicated by event id, amount re-verified |
 | Double capture / double click | Idempotent capture with PayPal-Request-Id; state machine with atomic claims |
-| Data exfiltration through the UI | No keys or vendor names in the UI or `/api/config`; CSP with per-request nonce; HSTS; no inline scripts |
+| Data exfiltration through the UI | No keys or vendor names in the UI or `/api/config`; CSP with per-request nonce (Express pages and `/api/*`; on Vercel the static HTML shell has the other headers but no CSP, see README); HSTS; no inline scripts |
 | CSV formula injection | Cells starting with `= + - @` (or tab/CR) are prefixed |
 | Loss of the audit trail | Reset is closed in production; exports are audited |
 

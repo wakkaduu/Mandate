@@ -3,13 +3,17 @@
 import { $, h, usd, safeHref, tweenText, motionOn } from './ui/dom.js';
 import { initShell, onRoute, setPendingApprovals, navigate } from './ui/shell.js';
 import { getPrefs, setPref, onPrefs } from './ui/prefs.js';
+import { icon } from './ui/icons.js';
 import { renderSettings, renderInfo } from './ui/pages.js';
+import { initMotion, progress, celebrate, flashRow } from './ui/motion.js';
 
 let cfg = {};
 let state = null;
 let sdkReady = null;
 let chatBusy = false; // pause background polling while the assistant works so the progress bubble is not replaced
 let gridP; let gridA;
+
+const tick = () => { const s = icon('check', { size: 18, cls: 'tick' }); s.setAttribute('stroke-width', '2.4'); return s; };
 
 const SUGGESTIONS = [
   'Find me an LED desk lamp under $40',
@@ -39,12 +43,12 @@ async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-// ------------------------------------------------------------------ toast (optional action, e.g. Undo)
+// ------------------------------------------------------------------ toast (optional action, e.g. Undo; `ok` draws a check mark)
 let toastTimer;
-function toast(msg, bad = false, action = null) {
+function toast(msg, bad = false, action = null, ok = false) {
   const t = $('toast');
   t.className = `toast${bad ? ' bad' : ''}`;
-  t.replaceChildren(...[h('span', {}, msg), action ? h('button', { class: 'toast-action', type: 'button', onclick: () => { t.hidden = true; action.run(); } }, action.label) : null].filter(Boolean));
+  t.replaceChildren(...[ok && !bad ? tick() : null, h('span', {}, msg), action ? h('button', { class: 'toast-action', type: 'button', onclick: () => { t.hidden = true; action.run(); } }, action.label) : null].filter(Boolean));
   t.hidden = false;
   t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
   clearTimeout(toastTimer);
@@ -102,16 +106,24 @@ async function mockApprove(p, outcome) {
 }
 
 // ------------------------------------------------------------------ actions
+let celebrateAfterRefresh = false;
 async function capture(id) {
   try {
     const r = await api(`/api/purchases/${id}/capture`, { method: 'POST' });
     if (r.outcome === 'declined') toast('PayPal declined that payment method. The budget was released. Re-request to try again.', true);
     else if (r.outcome === 'pending_review') toast('Payment is under PayPal review; it will finalise automatically.');
-    else toast(`Paid ${usd(r.purchase.amount_cents)} for ${r.purchase.product_name} via PayPal.`);
+    else { toast(`Paid ${usd(r.purchase.amount_cents)} for ${r.purchase.product_name} via PayPal.`, false, null, true); celebrateAfterRefresh = true; }
   } catch (e) {
     toast(e.message, true);
   }
   await refresh();
+  if (celebrateAfterRefresh) { celebrateAfterRefresh = false; celebrate(); }
+}
+
+/** Slide the row out first, then release the budget. */
+async function dismiss(id, row) {
+  if (row && motionOn()) { row.classList.add('leaving'); await new Promise((r) => setTimeout(r, 280)); }
+  await simple(`/api/purchases/${id}/cancel`, 'Dismissed. Budget released.');
 }
 
 async function simple(path, okMsg) {
@@ -189,7 +201,7 @@ async function refundGo() {
     const r = await api(`/api/purchases/${refundFlow.id}/refund/confirm`, { method: 'POST', body: { token: refundFlow.token } });
     refundFlow.token = null;
     $('dlg-refund').close();
-    toast(`Refunded ${usd(r.purchase.amount_cents)} for ${r.purchase.product_name} through PayPal.`);
+    toast(`Refunded ${usd(r.purchase.amount_cents)} for ${r.purchase.product_name} through PayPal.`, false, null, true);
     await refresh();
   } catch (e) {
     err.textContent = e.message; err.hidden = false;
@@ -215,7 +227,7 @@ async function submitConfirm(ev) {
   try {
     await api(`/api/purchases/${confirming.id}/confirm`, { method: 'POST', body: { amount_cents: confirming.amount_cents } });
     $('dlg-confirm').close();
-    toast('Amount confirmed. You can now pay with PayPal.');
+    toast('Amount confirmed. You can now pay with PayPal.', false, null, true);
     await refresh();
   } catch (e) { $('confirm-error').textContent = e.message; $('confirm-error').hidden = false; }
 }
@@ -276,11 +288,12 @@ function renderMandate(m) {
   const pct = (c) => `${Math.min(100, Math.max(0, (c / m.budget_cents) * 100))}%`;
   const held = m.committed_cents - m.captured_cents;
   mv.name.textContent = m.name;
-  tweenText(mv.remaining, mv.last ?? m.remaining_cents, m.remaining_cents, usd);
+  tweenText(mv.remaining, mv.last ?? 0, m.remaining_cents, usd, mv.last === undefined ? 1200 : 480); // first paint counts up from $0.00
   mv.last = m.remaining_cents;
+  $('mandate').removeAttribute('aria-busy');
   mv.of.textContent = `of ${usd(m.budget_cents)}`;
-  mv.spent.style.width = pct(m.captured_cents);
-  mv.held.style.width = pct(held);
+  const fill = () => { mv.spent.style.width = pct(m.captured_cents); mv.held.style.width = pct(held); };
+  if (!mv.painted && motionOn()) { mv.painted = true; mv.spent.style.width = '0%'; mv.held.style.width = '0%'; setTimeout(fill, 450); } else { mv.painted = true; fill(); }
   mv.bar.setAttribute('aria-label', `${usd(m.captured_cents)} spent, ${usd(held)} awaiting approval, ${usd(m.remaining_cents)} available`);
   mv.legendSpent.lastChild.textContent = `Spent ${usd(m.captured_cents)}`;
   mv.legendHeld.lastChild.textContent = `Awaiting approval ${usd(held)}`;
@@ -338,19 +351,20 @@ function renderApprovals(purchases) {
   approvalsSig = sig;
 
   const root = $('approvals');
+  root.removeAttribute('aria-busy');
   const kids = [];
   if (!pending.length) kids.push(h('p', { class: 'empty' }, 'Nothing is waiting for you. Ask the assistant to find something, or search the web yourself. Allowed requests appear here for your approval.'));
   for (const p of pending) {
-    const isNew = !approvalsFirst && !seenApprovals.has(p.id);
+    const isNew = !seenApprovals.has(p.id);
     const slot = h('div', { class: 'pp-slot' });
     const showButtons = p.status === 'pending' && !p.needs_confirmation;
-    kids.push(h('article', { class: `req pending${isNew ? ' enter-fade' : ''}` },
+    kids.push(h('article', { class: `req pending${isNew ? ' enter-fade' : ''}`, style: `--i:${kids.length}` },
       h('div', { class: 'req-head' }, h('h3', { class: 'req-title' }, `${p.product_name}${p.qty > 1 ? ` x${p.qty}` : ''}`), h('span', { class: 'req-amt' }, usd(p.amount_cents))),
       sourceLine(p),
       p.rationale ? h('p', { class: 'req-why' }, /^Requested by you/.test(p.rationale) ? p.rationale : `Assistant: ${p.rationale}`) : null,
       policyChecks(p),
       payBlock(p, slot),
-      p.status === 'pending' ? h('div', { class: 'req-actions' }, h('button', { class: 'btn small danger', onclick: () => simple(`/api/purchases/${p.id}/cancel`, 'Dismissed. Budget released.') }, 'Dismiss')) : null,
+      p.status === 'pending' ? h('div', { class: 'req-actions' }, h('button', { class: 'btn small danger', onclick: (e) => dismiss(p.id, e.currentTarget.closest('.req')) }, 'Dismiss')) : null,
     ));
     if (showButtons) queueMicrotask(() => renderPayPalButtons(p, slot));
   }
@@ -358,8 +372,8 @@ function renderApprovals(purchases) {
     kids.push(h('h2', { class: 'recent-title' }, 'Recent'));
     for (const p of recent) {
       const retry = ['declined', 'cancelled', 'expired', 'failed'].includes(p.status);
-      const isNew = !approvalsFirst && !seenApprovals.has(p.id);
-      kids.push(h('article', { class: `req${isNew ? ' enter' : ''}` },
+      const isNew = !seenApprovals.has(p.id);
+      kids.push(h('article', { class: `req${isNew ? ' enter' : ''}${isNew && p.status === 'captured' ? ' flash' : ''}`, style: `--i:${kids.length}` },
         h('div', { class: 'req-head' }, h('h3', { class: 'req-title' }, p.product_name), h('span', { class: `status ${p.status}` }, p.status)),
         h('p', { class: 'req-meta' }, `${usd(p.amount_cents)}${p.paypal_capture_id ? ` · capture ${p.paypal_capture_id}` : ''}`),
         p.status === 'blocked' ? policyChecks(p) : null,
@@ -466,9 +480,10 @@ async function send(text) {
   $('chat-send').disabled = true;
   chatBusy = true;
   const box = $('messages');
-  const who = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode] ?? 'The assistant';
+  const who = 'The assistant';
   const started = Date.now();
   const { el, label } = thinkingBubble(who);
+  progress.start();
   const live = setInterval(refresh, 2000); // requests appear as the assistant proposes them
   const tick = setInterval(() => { label.textContent = `${who} is searching the web and checking your mandate... ${Math.round((Date.now() - started) / 1000)}s`; }, 1000);
   box.append(h('div', { class: 'msg user enter' }, msg), el);
@@ -478,6 +493,7 @@ async function send(text) {
   } catch (e) {
     toast(e.message, true);
   } finally {
+    progress.stop();
     clearInterval(tick);
     clearInterval(live);
     chatBusy = false;
@@ -528,7 +544,7 @@ async function saveEditor(ev) {
       confirm_increase: editNeedsConfirm && $('edit-ack').checked,
     } });
     $('dlg-edit').close();
-    toast('Mandate updated.');
+    toast('Mandate updated.', false, null, true);
     await refresh();
   } catch (e) {
     if (e.code === 'CONFIRMATION_REQUIRED' && e.details?.changes) {
@@ -591,6 +607,7 @@ async function runSearch(e) {
   const btn = $('search-btn');
   btn.disabled = true;
   btn.textContent = 'Searching...';
+  progress.start();
   $('search-results').replaceChildren(h('p', { class: 'muted search-status' }, 'Searching the web and checking each price on the retailer page (about 10 seconds)...'), ...skeletons());
   try {
     const r = await api('/api/search', { method: 'POST', body: { query, ...(max > 0 ? { max_price_usd: max } : {}) } });
@@ -598,6 +615,7 @@ async function runSearch(e) {
   } catch (err) {
     $('search-results').replaceChildren(h('p', { class: 'empty' }, err.message));
   }
+  progress.stop();
   btn.disabled = false;
   btn.textContent = 'Search';
 }
@@ -612,20 +630,20 @@ const syncHint = () => { const p = getPrefs(); $('how-hint').hidden = !(p.showHi
 
 async function boot() {
   initShell();
+  initMotion();
   cfg = await api('/api/config');
 
-  const brand = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode];
-  $('agent-note').textContent = brand ? `${brand} with web search` : 'no AI key configured';
+  $('agent-note').textContent = cfg.aiEnabled ? 'AI assistant with web search' : 'AI assistant not set up';
 
   const notices = [];
   if (cfg.paypalMode !== 'mock' && !cfg.paypalConfigured) {
     notices.push('PayPal credentials are missing: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (see README). The assistant and policy engine still work, but orders cannot be created.');
   }
   if (!cfg.webSearch) {
-    notices.push('Live product search is off: set TAVILY_API_KEY (free tier), SERPER_API_KEY or GEMINI_API_KEY. A search provider finds product pages; the server verifies each price itself.');
+    notices.push('Live product search is off: no search source is configured on the server (see the README). Sources find product pages; the server verifies each price itself.');
   }
   if (cfg.persistent === false) {
-    notices.push('This deployment has no persistent database (set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN): your session and purchases can disappear between requests.');
+    notices.push('This deployment has no persistent database configured (see the README): your session and purchases can disappear between requests.');
   }
   if (notices.length) {
     const b = $('banner');

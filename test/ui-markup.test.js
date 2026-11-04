@@ -57,3 +57,21 @@ test('preferences: every option list has a default and the boot script exposes t
   for (const k of ['theme', 'accent', 'density', 'text', 'motion', 'startPage']) assert.match(boot, new RegExp(`${k}: \\[`));
   assert.match(boot, /window\.__prefsCore/);
 });
+
+test('the UI never shows third-party vendor names (only PayPal); product titles and retailers are data, not chrome', () => {
+  const visible = (f) => read(f).replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<!--[\s\S]*?-->/g, '').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const vendors = /gemini|claude|anthropic|openai|tavily|serper|google|turso|vercel|render\.com|\bmcp\b|model context protocol/i;
+  for (const f of ['index.html', 'app.js', 'ui/shell.js', 'ui/pages.js', 'ui/dom.js', 'ui/prefs.js', 'ui/motion.js', 'ui/icons.js', 'theme-boot.js']) assert.ok(!vendors.test(visible(f)), `${f} mentions a vendor`);
+});
+
+test('motion is opt-in per setting: every JS effect is gated by motionOn(); CSS honours reduced and off', () => {
+  const motion = read('ui/motion.js');
+  assert.match(motion, /import \{[^}]*motionOn[^}]*\} from '\.\/dom\.js'/);
+  assert.ok((motion.match(/motionOn\(\)/g) ?? []).length >= 6, 'ripple, spotlight, reveal, ink, replay, theme fade are gated');
+  const css = read('styles.css');
+  assert.match(css, /:root\[data-motion="off"\] \*[^{]*\{[^}]*animation-duration: \.001ms !important/);
+  assert.match(css, /:root\[data-motion="reduced"\] \{[^}]*--move: 0px/);
+  assert.ok(!/\.pp-slot[^{]*\{[^}]*(filter|transform|zoom)/.test(css), 'no effects on the PayPal slot');
+  assert.match(css, /:is\(\.statement, \.req:not\(\.pending\)/, 'spotlight skips rows that hold PayPal buttons');
+  assert.match(css, /\.req:not\(\.pending\):hover/, 'no lift on rows that hold PayPal buttons');
+});

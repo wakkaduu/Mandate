@@ -104,16 +104,15 @@ function infoSection(title, rows) {
       h('dd', {}, Array.isArray(v) ? v : h('span', { class: 'val' }, kind ? h('span', { class: `dot ${kind}`, 'aria-hidden': 'true' }) : null, v), extra ?? null)))));
 }
 
-/** Everything shown here comes from GET /api/config (no secrets: only whether a key is configured). */
+/** Everything shown here comes from GET /api/config. No secrets and no vendor names: only what is switched on. */
 export function infoModel(cfg) {
-  const brain = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode];
   return {
     paypal: { environment: cfg.paypalMode === 'mock' ? 'Offline simulator (development)' : 'Sandbox (test mode)', credentials: Boolean(cfg.paypalConfigured), currency: cfg.currency, webhooks: Boolean(cfg.webhooks) },
     safety: { refundCoolingSeconds: cfg.refundCoolingSeconds ?? null, highValueCents: cfg.highValueCents ?? null },
-    ai: { provider: brain ?? 'Not configured', model: cfg.model ?? null, fallbacks: (cfg.models ?? []).filter((m) => m !== cfg.model) },
-    search: { providers: cfg.searchProviders ?? [], strictPrices: cfg.strictPrices !== false, cacheMinutes: cfg.searchCacheMinutes ?? null, dailyBudget: cfg.searchesPerDay ?? null },
-    hosting: { host: cfg.host === 'vercel' ? 'Vercel (serverless)' : 'Node server', persistent: cfg.persistent !== false, version: cfg.version ?? null },
-    mcp: { endpoint: `${location.origin}${cfg.mcpPath ?? '/mcp'}` },
+    assistant: { enabled: Boolean(cfg.aiEnabled) },
+    search: { sources: cfg.searchSources ?? 0, strictPrices: cfg.strictPrices !== false, cacheMinutes: cfg.searchCacheMinutes ?? null, dailyBudget: cfg.searchesPerDay ?? null },
+    hosting: { mode: cfg.serverless ? 'Serverless' : 'Server', persistent: cfg.persistent !== false, version: cfg.version ?? null },
+    agentAccess: { endpoint: `${location.origin}${cfg.agentPath ?? '/agent'}` },
   };
 }
 
@@ -136,9 +135,6 @@ export function renderInfo(root, cfg, { toast }) {
   const copy = async (text, label) => {
     try { await navigator.clipboard.writeText(text); toast(`${label} copied.`); } catch { toast('Copy is blocked in this browser. Select the text and press Ctrl+C.', true); }
   };
-  const providerChips = m.search.providers.length
-    ? h('span', { class: 'chips-inline' }, m.search.providers.map((p, i) => h('span', { class: 'cat' }, `${i + 1}. ${p}`)))
-    : 'None configured';
   const money = (c) => `$${(c / 100).toFixed(2)}`;
 
   root.replaceChildren(
@@ -151,26 +147,25 @@ export function renderInfo(root, cfg, { toast }) {
       ['High-value payments', m.safety.highValueCents != null ? `${money(m.safety.highValueCents)} and above: type the amount to confirm` : '-', null],
     ]),
     infoSection('Assistant', [
-      ['Provider', m.ai.provider, yes(cfg.agentMode === 'gemini' || cfg.agentMode === 'claude')],
-      ['Model', m.ai.model ?? '-', null],
-      ['Fallback models', m.ai.fallbacks.length ? m.ai.fallbacks.join(', ') : '-', null],
-      ['Tools', 'search_products, propose_purchase, get_mandate', null],
+      ['AI assistant', m.assistant.enabled ? 'Enabled' : 'Not set up', yes(m.assistant.enabled)],
+      ['What it can do', 'Search products, read your mandate, request a purchase', null],
       ['Can spend money', 'No: it can only request purchases', 'ok'],
+      ['Can set a price', 'No: prices are read by the server', 'ok'],
     ]),
     infoSection('Web search', [
-      ['Providers (in order)', providerChips, yes(m.search.providers.length > 0)],
+      ['Search sources', m.search.sources > 0 ? `${m.search.sources} configured` : 'None configured', yes(m.search.sources > 0)],
       ['Price check', m.search.strictPrices ? 'Strict: read from the retailer\'s page' : 'Accepts search-result prices', m.search.strictPrices ? 'ok' : 'warn'],
       ['Result cache', m.search.cacheMinutes != null ? `${m.search.cacheMinutes} minutes` : '-', null],
       ['Daily search budget', m.search.dailyBudget != null ? `${m.search.dailyBudget} searches` : '-', null],
     ]),
     infoSection('Data and hosting', [
       ['Storage', m.hosting.persistent ? 'Persistent database' : 'Temporary (resets between visits)', yes(m.hosting.persistent)],
-      ['Host', m.hosting.host, null],
+      ['Deployment', m.hosting.mode, null],
       ['Version', m.hosting.version ?? '-', null],
       ['Server health', healthRow, null, h('button', { class: 'btn small', type: 'button', onclick: checkHealth }, icon('refresh', { size: 14 }), 'Recheck')],
     ]),
-    infoSection('Agent access (MCP)', [
-      ['Endpoint', h('code', {}, m.mcp.endpoint), null, h('button', { class: 'btn small', type: 'button', onclick: () => copy(m.mcp.endpoint, 'Endpoint') }, icon('copy', { size: 14 }), 'Copy')],
+    infoSection('Agent access', [
+      ['Endpoint', h('code', {}, m.agentAccess.endpoint), null, h('button', { class: 'btn small', type: 'button', onclick: () => copy(m.agentAccess.endpoint, 'Endpoint') }, icon('copy', { size: 14 }), 'Copy')],
       ['Authentication', 'Bearer token, issued per session by the API', null],
       ['Rules', 'External agents pass the same policy checks and PayPal approval', 'ok'],
     ]),

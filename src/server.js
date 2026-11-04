@@ -97,7 +97,7 @@ export function createApp() {
 
   if (config.paypal.mode === 'mock') app.use('/mock-paypal', createMockPayPal());
 
-  app.use('/mcp', createMcpRouter());
+  app.use(['/mcp', '/agent'], createMcpRouter());  // /agent is the neutral name shown in the UI; /mcp keeps existing clients working
 
   app.use(express.json({ limit: '16kb' }));
 
@@ -126,13 +126,15 @@ export function createApp() {
       paypalConfigured: paypalConfigured(),
       currency: config.paypal.currency,
       agentMode: agentMode(),
+      aiEnabled: agentMode() !== 'offline',
       webSearch: searchProviders().length > 0,
+      searchSources: searchProviders().length,
       searchProviders: searchProviders(),
       models: config.gemini.models,
       strictPrices: !config.web.allowUnverifiedPrices,
       searchCacheMinutes: Math.round(config.web.searchCacheMs / 60_000),
       searchesPerDay: config.web.searchesPerDay,
-      mcpPath: '/mcp',
+      agentPath: '/agent',
       refundCoolingSeconds: config.safety.refundCoolingSeconds,
       highValueCents: config.safety.highValueCents,
       version: appVersion,
@@ -140,6 +142,7 @@ export function createApp() {
       webhooks: Boolean(config.paypal.webhookId),
       persistent: config.dbPersistent,
       host: config.onVercel ? 'vercel' : 'node',
+      serverless: Boolean(config.onVercel),
     });
   });
 

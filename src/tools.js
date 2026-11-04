@@ -1,4 +1,4 @@
-// The agent tool surface, shared by every "brain": the Claude loop, the offline agent and the MCP server.
+// The agent tool surface, shared by every "brain" (Gemini loop, Claude loop) and the external-agent endpoint.
 // Nothing here can move money: propose_purchase goes through the policy gate and ends in a PayPal order
 // that a human must approve.
 import { proposePurchase, getMandate } from './purchases.js';
@@ -83,6 +83,7 @@ export async function runTool(sid, name, input = {}) {
         };
       } catch (e) {
         if (!(e instanceof SearchUnavailable)) throw e;
+        console.warn(`[search] ${e.detail}`);
         return { result: { error: e.message }, step: { tool: name, ok: false, text: `Web search failed: ${e.message}` } };
       }
     }

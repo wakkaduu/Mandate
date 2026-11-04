@@ -81,7 +81,7 @@ async function runClaude(sid, userText, steps, history) {
 // ------------------------------------------------------------------ No-AI replies
 // There is deliberately no scripted shopper: without a language model and web search the app cannot find real
 // products, so it says so instead of pretending.
-const NO_AI = 'No AI model is configured on this server (set GEMINI_API_KEY), so I cannot search the web or shop yet. Nothing was bought.';
+const NO_AI = 'The AI assistant is not set up on this server, so I cannot search the web or shop yet. Nothing was bought. You can still search the web yourself from the Search page.';
 const AI_DOWN = 'The AI model is unavailable right now (quota or an outage on the provider side), so I could not shop for you. Nothing was bought or queued. Please try again in a minute.';
 
 // ------------------------------------------------------------------ Entry point

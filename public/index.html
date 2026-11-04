@@ -7,18 +7,19 @@
   <meta name="csp-nonce" content="">
   <title>Mandate</title>
   <meta name="description" content="Give an AI agent a spending mandate. Every purchase is policy-checked, then settled through PayPal with one-tap human approval.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='3' fill='%2360cdff'/%3E%3Cpath d='M9 22V10l7 8 7-8v12' stroke='black' stroke-width='3' fill='none' stroke-linecap='square' stroke-linejoin='miter'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2360cdff'/%3E%3Cpath d='M9 22V10l7 8 7-8v12' stroke='black' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <script src="/theme-boot.js"></script>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
+  <div class="progress" id="progress" aria-hidden="true"><i></i></div>
 
   <!-- ============================================================ masthead -->
   <header class="masthead">
     <div class="wrap masthead-inner">
       <a class="brand" href="#/overview" aria-label="Mandate, home">
-        <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><rect width="32" height="32" rx="3" fill="var(--accent)"/><path d="M9 22V10l7 8 7-8v12" stroke="var(--accent-ink)" stroke-width="3" fill="none" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+        <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M9 22V10l7 8 7-8v12" stroke="var(--accent-ink)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="wordmark">Mandate</span>
       </a>
       <button class="menu-btn" id="btn-menu" type="button" aria-expanded="false" aria-controls="primary-nav">Menu</button>
@@ -59,13 +60,19 @@
           <h2 id="h-mandate" class="eyebrow">Mandate</h2>
           <button class="btn small" id="btn-edit" type="button">Edit mandate</button>
         </div>
-        <div id="mandate" class="statement-body"></div>
+        <div id="mandate" class="statement-body" aria-busy="true">
+          <div class="st-main"><i class="sk w40"></i><i class="sk big"></i><i class="sk w80"></i></div>
+          <div class="terms"><i class="sk w80"></i><i class="sk w60"></i><i class="sk w80"></i><i class="sk w40"></i></div>
+        </div>
       </section>
 
       <div class="workbench">
         <section class="work-main" aria-labelledby="h-approvals">
           <header class="block-head"><h2 id="h-approvals">Awaiting your approval</h2><span class="count" id="approvals-count"></span></header>
-          <div id="approvals" class="req-list"></div>
+          <div id="approvals" class="req-list" aria-busy="true">
+            <div class="req skeleton" aria-hidden="true"><i class="sk w60"></i><i class="sk w40"></i><i class="sk w80"></i></div>
+            <div class="req skeleton" aria-hidden="true"><i class="sk w60"></i><i class="sk w80"></i></div>
+          </div>
         </section>
 
         <aside class="dock" aria-labelledby="h-agent">
@@ -93,7 +100,7 @@
       </section>
       <div class="notice" id="search-off" hidden>
         <h2>Product search is not set up</h2>
-        <p>Add a search provider key on the server (Tavily, Serper or Gemini) and reload. Information shows what is configured.</p>
+        <p>No search source is configured on the server. Add one and reload. Information shows what is configured.</p>
         <a class="btn small" href="#/info">Open Information</a>
       </div>
     </section>
@@ -145,7 +152,7 @@
 
     <!-- ---------------------------------------------------------- Information -->
     <section class="page" id="page-info" data-page="info" hidden aria-labelledby="page-title">
-      <div id="info-content"></div>
+      <div id="info-content" class="info-content"></div>
     </section>
 
     <!-- ---------------------------------------------------------- Settings -->

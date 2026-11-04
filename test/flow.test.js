@@ -413,7 +413,7 @@ test('manual search + request: validated input, unavailable search is a clean 50
 // ---------------------------------------------------------------- Information page data
 test('/api/config feeds the Information page and never exposes secrets', async () => {
   const cfg = (await client(app.base).get('/api/config')).body;
-  for (const k of ['paypalMode', 'paypalConfigured', 'currency', 'agentMode', 'webSearch', 'searchProviders', 'models', 'strictPrices', 'searchCacheMinutes', 'searchesPerDay', 'persistent', 'host', 'version', 'mcpPath']) {
+  for (const k of ['paypalMode', 'paypalConfigured', 'currency', 'agentMode', 'webSearch', 'searchProviders', 'models', 'strictPrices', 'searchCacheMinutes', 'searchesPerDay', 'persistent', 'host', 'version', 'agentPath', 'aiEnabled', 'searchSources']) {
     assert.ok(k in cfg, `config.${k}`);
   }
   assert.equal(cfg.strictPrices, true);

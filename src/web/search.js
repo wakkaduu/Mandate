@@ -11,7 +11,10 @@ import { extractProduct } from './extract.js';
 import { saveOffer, getOffer, offerId, canonicalUrl } from '../offers.js';
 import { db } from '../db.js';
 
-export class SearchUnavailable extends Error {}
+/** `message` is shown to people (no vendor names); `detail` is for the server log only. */
+export class SearchUnavailable extends Error {
+  constructor(message, detail) { super(message); this.detail = detail ?? message; }
+}
 
 const MAX_OFFERS = 6;
 
@@ -53,7 +56,7 @@ async function verifyAll(cands, capMs = 8000) {
 export async function searchWeb({ query, max_price_usd, category }) {
   const providers = searchProviders();
   if (!providers.length) {
-    throw new SearchUnavailable('Web product search is not configured: set TAVILY_API_KEY (free tier), SERPER_API_KEY or GEMINI_API_KEY (needs billing for Google Search).');
+    throw new SearchUnavailable('Product search is not configured on this server.', 'No search provider is configured: set TAVILY_API_KEY, SERPER_API_KEY or GEMINI_API_KEY.');
   }
   const q = clean(query, 120);
   if (!q) return { offers: [], dropped: [], provider: providers[0] };
@@ -68,7 +71,7 @@ export async function searchWeb({ query, max_price_usd, category }) {
   }
   const spent = (await d.get('SELECT COUNT(*) AS c FROM search_log WHERE created_at > ?', [Date.now() - 24 * 3600_000])).c;
   if (spent >= config.web.searchesPerDay) {
-    throw new SearchUnavailable('The daily web-search budget for this deployment is used up (it protects the free search-API quotas). Try again tomorrow, or repeat an earlier search.');
+    throw new SearchUnavailable('The daily search budget for this deployment is used up. Try again tomorrow, or repeat an earlier search.', 'WEB_SEARCHES_PER_DAY reached');
   }
   await d.run('INSERT INTO search_log (created_at) VALUES (?)', [Date.now()]);
 
@@ -126,6 +129,6 @@ export async function searchWeb({ query, max_price_usd, category }) {
   }
   // Every provider either failed or produced nothing verifiable. Only call it "unavailable" if none actually answered.
   const answered = errors.some((e) => /no candidate could be verified/.test(e));
-  if (!answered) throw new SearchUnavailable(`Web search is unavailable right now (${errors.join('; ')}).`);
+  if (!answered) throw new SearchUnavailable('Web search is unavailable right now. Please try again in a minute.', `All search providers failed: ${errors.join('; ')}`);
   return { offers: [], dropped, provider: providers.at(-1) };
 }

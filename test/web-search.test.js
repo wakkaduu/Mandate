@@ -149,7 +149,7 @@ test('everything failing is "unavailable"; answering-but-empty is a normal empty
   tavilyFails = true;
   config.search.serperKey = '';
   const gem = config.gemini.apiKey; config.gemini.apiKey = '';
-  await assert.rejects(() => searchWeb({ query: 'nothing-cached-1' }), (e) => e instanceof SearchUnavailable && /Tavily: HTTP 432/.test(e.message));
+  await assert.rejects(() => searchWeb({ query: 'nothing-cached-1' }), (e) => e instanceof SearchUnavailable && /Tavily: HTTP 432/.test(e.detail) && !/tavily|serper|gemini|google/i.test(e.message));
   config.search.tavilyKey = '';
   await assert.rejects(() => searchWeb({ query: 'nothing-cached-1' }), (e) => e instanceof SearchUnavailable && /not configured/.test(e.message));
   config.search.tavilyKey = 'tvly-test'; config.search.serperKey = 'serper-test'; config.gemini.apiKey = gem;
@@ -181,7 +181,7 @@ test('identical searches are served from the cache (no provider calls); the dail
   const saved = config.web.searchesPerDay;
   config.web.searchesPerDay = 0;
   try {
-    await assert.rejects(() => searchWeb({ query: 'brand new question' }), (e) => e instanceof SearchUnavailable && /daily web-search budget/.test(e.message));
+    await assert.rejects(() => searchWeb({ query: 'brand new question' }), (e) => e instanceof SearchUnavailable && /daily search budget/.test(e.message));
     assert.ok((await searchWeb({ query: 'cache probe' })).offers.length, 'cached answers still work when the budget is spent');
   } finally { config.web.searchesPerDay = saved; }
 });

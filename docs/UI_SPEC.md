@@ -40,11 +40,23 @@ Hash routes, focus moves to the page heading on navigation.
 
 Accent choices in Settings: Sky Blue (default), Midnight, Link Blue, Success Green, Ink, each with its own text-on-accent color.
 
-## Typography and shape
-Serif (Iowan Old Style / Palatino / Georgia) for page titles, section headings, the wordmark and step numerals; system sans for text; system mono for amounts and ids in rows and the ledger. Corners 2 px, 1 px rules, 2 px ink rule above each section heading. No external fonts.
+## Typography and shape (softened Nov 4, after "too solid")
+Serif (Iowan Old Style / Palatino / Georgia) for page titles, section headings, the wordmark and step numerals; system sans for text; system mono for amounts and ids. Corners 8-12 px on controls and cards, 20 px on large panels (statement, assistant, Information/Settings sections); light warm hairlines instead of black rules; two-layer soft shadows; tinted chips instead of outlined tags; translucent masthead with a blur and a shadow that appears on scroll. Still no external fonts, no glowing blobs, no decorative gradients beyond the Midnight statement band.
 
-## Motion
-Short fades and a few pixels of rise (page change, new rows and replies); the budget figure counts and the bar eases; no bouncing, popping or shimmering. Rows that contain PayPal's buttons only fade (no transform near the SDK iframe). `reduced`: no movement; `off`: every animation 0 ms; `system` follows `prefers-reduced-motion`.
+## Motion (expressive, purposeful, governed by Settings -> Motion)
+| Where | Effect |
+|---|---|
+| Load | Masthead drops in; the brand mark draws itself; sections rise in a stagger; the budget figure counts up from $0.00 and the bar fills; skeleton shimmer until data arrives |
+| Navigation | Underline glides between tabs; each page's sections stagger in and reveal again as they scroll into view |
+| Pointer | Soft spotlight follows the pointer over cards (never over rows that hold PayPal's buttons); buttons lift, press and show a ripple; primary buttons get a light sweep; theme icon turns; suggestion links underline-grow |
+| Feedback | Assistant bubbles slide in from their side with a wave indicator; top progress bar while searching or the assistant works; request rows slide out when dismissed; new rows flash; success toasts draw a check mark; a captured payment bumps the budget figure and sends a ring from the bar; the Midnight band has a slow sheen |
+| Settings | Switches, swatches and segmented controls spring; changing theme or accent cross-fades colors |
+| Dialogs | Spring-in with a blurred backdrop |
+
+Rules: transform and opacity only; nothing moves PayPal's buttons (rows that contain them only fade, get no lift and no spotlight, and are never revealed with a transform); every JS effect checks `motionOn()`. `reduced` (also what "system" picks when the OS asks for less motion): no movement, short fades, no shimmer/sheen/ripple/spotlight/glide. `off`: every animation and transition 0 ms, no reveal classes at all. Print shows everything.
+
+## Vendor names
+The UI shows no third-party vendor names, only PayPal. Information reports capabilities in neutral words (AI assistant: enabled; search sources: N configured; deployment: server/serverless; agent endpoint `/agent`). The server's user-facing error messages are vendor-neutral too; the specifics go to the server log (`SearchUnavailable.detail`). Product titles and retailer names in search results are data, not chrome, and stay (a buyer must see what they are buying and where). Docs, README and the Devpost text still name the technologies, as the contest asks for a description of what was used. `test/ui-markup.test.js` fails if a vendor name appears in UI code.
 
 ## PayPal / contest rules this UI keeps
 - PayPal's buttons are rendered by PayPal's SDK in `.pp-slot` and are never restyled, filtered, scaled or wrapped in transforms (`test/ui-markup.test.js` guards the CSS). We add no PayPal logos or marks; "PayPal" appears only as plain text.

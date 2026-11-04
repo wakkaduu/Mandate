@@ -2,7 +2,7 @@
 
 Give an AI agent a **spending mandate** (budget, per-purchase cap, allowed categories). It shops for you; a policy engine approves or blocks every request *before PayPal is called*; allowed purchases become real **PayPal sandbox orders** that you approve with one tap; every decision lands in a live **AG Grid** ledger. Built by Sav for the PayPal AI Hackathon, developed with Claude Code.
 
-![Agent proposes purchases and the mandate blocks one](docs/screenshots/01-agent-proposes.png)
+![An agent shops inside the mandate: allowed requests get PayPal buttons, the 4K monitor is blocked](docs/screenshots/01-agent-proposes-policy-blocks.png)
 
 ## How PayPal is used (it is the trust layer, not a checkout button)
 | Step | PayPal API | Where |
@@ -50,6 +50,29 @@ Budget, per-purchase cap, allowed categories, a rolling **daily limit**, **selle
 - **The assistant suggests, you decide.** Ask "raise my budget to $500 and block example.com" and the assistant calls `suggest_mandate_change`. Nothing changes: a card appears on Account with the exact changes, and only you can apply them (tick the acknowledgement). Suggestions are rate limited, superseded by newer ones, validated like any mandate edit, and every step is audited.
 - **Export for finance.** Ledger -> Export purchases / Export audit trail (CSV; `GET /api/export?kind=purchases|audit&format=csv|json`). Cells that could run as spreadsheet formulas are neutralised, and each export is itself audited.
 - See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow and the threat model.
+
+## Built with
+
+| Area | Technology | How it is used here |
+|---|---|---|
+| Payments | **PayPal** REST API (Orders v2, Payments refunds, Webhooks) and the PayPal JS SDK, sandbox only | The settlement and consent layer; see [How PayPal is used](#how-paypal-is-used-it-is-the-trust-layer-not-a-checkout-button) |
+| AI models | **Google Gemini** (REST, function calling, automatic model fallback) and **Anthropic Claude** (`@anthropic-ai/sdk`) | The shopping agent; see [How the AI is used](#how-the-ai-is-used) |
+| Agent interop | **Model Context Protocol (MCP)** | Mandate is an MCP server ([src/mcp.js](src/mcp.js), Streamable HTTP over Express). The official `@modelcontextprotocol/sdk` is a dev dependency used as the test client |
+| Live product search | **Tavily**, **Serper**, Gemini with Google Search grounding | Find candidate product pages; the server then reads and verifies each price itself |
+| Ledger UI | **AG Grid Community** 36 | Purchases ledger and audit trail (see below) |
+| Server | Node.js 22.13+ (tested on 24), Express 5 | HTTP API, sessions, policy engine, PayPal client |
+| Database | libSQL via `@libsql/client` | A local SQLite file, or **Turso** when hosted |
+| Front end | Vanilla JavaScript, no framework and no build step | AG Grid is copied from `node_modules` by [scripts/copy-vendor.mjs](scripts/copy-vendor.mjs) and served locally, so nothing loads from a CDN |
+| Hosting | **Render** ([render.yaml](render.yaml)) and Vercel ([vercel.json](vercel.json), [api/index.js](api/index.js)) | Both run the same code; see [Deploy](#deploy) |
+| Tests | Node's built-in `node:test` | `npm test` |
+| Development | **Claude Code** | The AI coding assistant this project was built with |
+| Demo video | Remotion, Playwright, ElevenLabs voice-over | Source in [video/](video/) |
+
+### Sponsor tools
+- **PayPal** is the core of the project (sandbox only); the table at the top of this README maps each API call to the code that makes it.
+- **AG Grid Community** renders the two data views in [public/app.js](public/app.js): the **purchases ledger** (time, item, merchant, link, amount, status, policy note, PayPal order and capture ids) and the **audit trail** (every policy decision and PayPal event). Both grids use sorting, filtering, resizable columns, tooltips and row animation, update live as state changes, and use the Quartz theme driven by the app's own CSS variables, so they follow the light/dark theme, accent colour and density setting. The Community build is MIT-licensed. The CSV export is produced by the server, not by the grid.
+- **Render** hosts the app from the [render.yaml](render.yaml) Blueprint (free tier, `/healthz` health check, secrets set in the dashboard), and `npm run smoke -- <url>` verifies a deployment end to end. See [Deploy](#render-free-tier-recommended). The live URL is listed in the Devpost submission.
+- **Not used:** APIMatic, Postman and Astropods. They were left out on purpose to keep the integration surface small (see [DECISIONS.md](DECISIONS.md)). The HTTP contract is documented in [docs/API.md](docs/API.md).
 
 ## Quick start
 
@@ -122,7 +145,7 @@ Tests: policy unit tests (incl. expiry and pace); the live-web pipeline against 
 ## Deploy
 Both hosts run the same code. Set `NODE_ENV=production`, the PayPal sandbox credentials and an AI key on whichever you use.
 
-### Render (free tier; recommended, also eligible for the Render sponsor prize)
+### Render (free tier; recommended)
 1. The repo is public (the MIT [LICENSE](LICENSE) shows in About).
 2. Render -> **New -> Blueprint** -> select the repo ([render.yaml](render.yaml)).
 3. Set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY` (and optionally `PAYPAL_WEBHOOK_ID`) in the dashboard. Optional: Turso variables for state that survives restarts.
@@ -169,7 +192,11 @@ test/              node:test suites
 ## Screenshots
 | | |
 |---|---|
-| ![Approved and declined](docs/screenshots/02-approved-and-declined.png) | ![Mobile](docs/screenshots/03-mobile.png) |
+| ![Set the mandate](docs/screenshots/02-set-the-mandate.png) | ![Live budget, daily limit and seller controls](docs/screenshots/03-live-budget-and-limits.png) |
+| ![Search the web yourself](docs/screenshots/06-search-verified-prices.png) | ![Ledger](docs/screenshots/08-ledger.png) |
+| ![Audit trail](docs/screenshots/09-audit-trail.png) | ![Who is trusted with what](docs/screenshots/11-who-is-trusted-with-what.png) |
+
+All eleven captioned images (3:2, for the Devpost gallery) are in [docs/screenshots/](docs/screenshots/); captions are listed in [docs/screenshots/CAPTIONS.md](docs/screenshots/CAPTIONS.md).
 
 ## Official Rules
 Compliance checklist: [docs/RULES_CHECKLIST.md](docs/RULES_CHECKLIST.md).

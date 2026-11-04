@@ -6,7 +6,7 @@
 
 **Links:** Repo: https://github.com/wakkaduu/Mandate - Live demo: `<Render URL>` - Video: `<YouTube URL>` (see DEMO_SCRIPT.md)
 
-**Built with:** PayPal REST (Orders v2, Payments refund, Webhooks), PayPal JS SDK, Google Gemini (function calling; Claude also supported), Model Context Protocol (MCP), AG Grid Community, Node.js, Express, SQLite, Render.
+**Built with:** PayPal REST (Orders v2, Payments refund, Webhooks) and PayPal JS SDK (sandbox); Google Gemini (function calling) and Anthropic Claude; Model Context Protocol (MCP); Tavily, Serper and Gemini Google Search grounding for live product search; AG Grid Community (ledger and audit trail); Node.js, Express 5, libSQL (SQLite file or Turso); Render (and Vercel) for hosting; Claude Code as the AI coding assistant; Remotion, Playwright and ElevenLabs for the demo video. Full table with where each is used: README, "Built with".
 
 **Prizes targeted:** Grand Prize, Best Use of PayPal + AI, Best Use of Agentic Commerce, Best Use of AG Grid, Best Use of Render.
 
@@ -32,13 +32,13 @@ Everything lands in an AG Grid ledger with a complete audit trail: policy decisi
 - **PayPal**: orders are created server-side from server-verified web prices with `PayPal-Request-Id` idempotency and a unique `invoice_id`; the JS SDK button hands the server-created order id to PayPal; capture is server-side and the captured amount/currency is re-verified; refunds use the captures API; webhooks are verified with PayPal's `verify-webhook-signature` against the raw request bytes, deduplicated by event id, and can finish a capture the browser never reported.
 - **Works without the AI too**: a "search the web yourself" panel runs the same verified-offer pipeline, mandate pre-check and PayPal approval, so the demo survives model rate limits.
 - **Ledger**: AG Grid with sorting/filtering over purchases and the audit trail.
-- **Stack**: Node + Express, built-in `node:sqlite`, vanilla JS front end, Render free tier. automated tests cover the policy, the live-web pipeline (price verification, SSRF guard), the full payment lifecycle against a PayPal simulator, webhooks, the Claude tool loop and the MCP server (driven by the official MCP client).
+- **Stack**: Node + Express, libSQL (a local SQLite file, or Turso when hosted), vanilla JS front end, Render free tier (Vercel also supported). Automated tests cover the policy, the live-web pipeline (price verification, SSRF guard), the full payment lifecycle against a PayPal simulator, webhooks, the Claude tool loop and the MCP server (driven by the official MCP client).
 
 ## Challenges
 - Making "the AI can't overspend" a *guarantee* instead of a prompt: the cap, budget and category rules run server-side after the model speaks, and reservations are taken inside a transaction so concurrent proposals cannot both fit into the same remaining budget.
 - Payment edge cases: a double-click on approve, a capture response lost in transit, a declined funding source, and a webhook that arrives before the browser's capture call. Each has an explicit, tested path.
 - Webhook verification needs the exact bytes PayPal sent, so the payload is embedded verbatim rather than re-serialised.
-- Keeping the demo reliable for every judge: per-visitor sessions with seeded data, an honest 'AI unavailable' reply instead of a fake shopper, vendored AG Grid so nothing depends on a CDN.
+- Keeping the demo reliable for every judge: per-visitor isolated sessions, an honest 'AI unavailable' reply instead of a fake shopper, vendored AG Grid so nothing depends on a CDN.
 
 ## Accomplishments we're proud of
 - A real separation of powers: the model proposes, deterministic policy disposes, the human consents, PayPal settles, and the ledger remembers.
@@ -54,8 +54,9 @@ PayPal's Orders API fits agentic commerce well: server-created orders with idemp
 - Real merchant feeds (e.g. Channel3), shipping addresses, multi-currency, team mandates with shared budgets, and spend analytics.
 
 ## Testing instructions (for judges)
-**Hosted demo:** `<Render URL>` (free instance: the first load after idle can take about 30 seconds). Each visitor gets an isolated demo session with a pre-seeded mandate, so no sign-up is needed.
+**Hosted demo:** `<Render URL>` (free instance: the first load after idle can take about 30 seconds). Each visitor gets an isolated demo session, so no sign-up is needed.
 
+0. On first load, set your own mandate when asked (nothing is pre-filled): for example a **$300** budget, a **$120** per-purchase cap and the categories office, electronics and home. Search, chat and purchases stay locked until you do.
 1. Click a suggestion chip, or type *"a desk lamp under $40, a mechanical keyboard and a 4K monitor"*. The agent searches the live web (each price is verified on the retailer's page by the server); the 4K monitor is blocked by the policy, the other items appear under **Approvals**. Open **Agent activity** to see each tool call. If the AI model is busy, use **Search the web yourself** (same checks, no model).
 2. Click the PayPal button and sign in with this **PayPal Sandbox buyer** account (fake money, sandbox only):
    - Email: `<sandbox buyer email>`

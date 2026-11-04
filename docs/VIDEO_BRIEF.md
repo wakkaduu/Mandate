@@ -1,6 +1,6 @@
 # Demo video brief (Remotion + ElevenLabs)
 
-Machine-readable storyboard: [docs/video/storyboard.json](video/storyboard.json) (scene ids, start/duration, narration text, captions, what to capture, UI steps). Target 2:46, hard limit under 3:00.
+Machine-readable storyboard: [docs/video/storyboard.json](video/storyboard.json) (scene ids, start/duration, narration text, captions, what to capture, UI steps). Shot-by-shot visual storyboard with frame sketches: [docs/video/STORYBOARD.md](video/STORYBOARD.md). Target 2:46, hard limit under 3:00.
 
 ## Rules the video must respect
 - Public on YouTube, shows the project working on its own device, **no third-party trademarks, no copyrighted music** (Official Rules, section 4). Show only PayPal's own buttons and the app itself.

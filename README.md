@@ -2,6 +2,8 @@
 
 Give an AI agent a **spending mandate** (budget, per-purchase cap, allowed categories). It shops for you; a policy engine approves or blocks every request *before PayPal is called*; allowed purchases become real **PayPal sandbox orders** that you approve with one tap; every decision lands in a live **AG Grid** ledger. Built by Sav for the PayPal AI Hackathon, developed with Claude Code.
 
+**Live demo:** <https://mandate-flax.vercel.app> (PayPal sandbox; the test buyer login is in the Devpost testing instructions) · **Demo video (2:55):** <https://youtu.be/Fwc9MWMl4ac> · **License:** MIT
+
 ![An agent shops inside the mandate: allowed requests get PayPal buttons, the 4K monitor is blocked](docs/screenshots/01-agent-proposes-policy-blocks.png)
 
 ## How PayPal is used (it is the trust layer, not a checkout button)
@@ -63,7 +65,7 @@ Budget, per-purchase cap, allowed categories, a rolling **daily limit**, **selle
 | Server | Node.js 22.13+ (tested on 24), Express 5 | HTTP API, sessions, policy engine, PayPal client |
 | Database | libSQL via `@libsql/client` | A local SQLite file, or **Turso** when hosted |
 | Front end | Vanilla JavaScript, no framework and no build step | AG Grid is copied from `node_modules` by [scripts/copy-vendor.mjs](scripts/copy-vendor.mjs) and served locally, so nothing loads from a CDN |
-| Hosting | **Render** ([render.yaml](render.yaml)) and Vercel ([vercel.json](vercel.json), [api/index.js](api/index.js)) | Both run the same code; see [Deploy](#deploy) |
+| Hosting | **Vercel** ([vercel.json](vercel.json), [api/index.js](api/index.js)) for the live demo; **Render** ([render.yaml](render.yaml)) is also supported | Both run the same code; see [Deploy](#deploy) |
 | Tests | Node's built-in `node:test` | `npm test` |
 | Development | **Claude Code** | The AI coding assistant this project was built with |
 | Demo video | Remotion, Playwright, ElevenLabs voice-over | Source in [video/](video/) |
@@ -71,7 +73,7 @@ Budget, per-purchase cap, allowed categories, a rolling **daily limit**, **selle
 ### Sponsor tools
 - **PayPal** is the core of the project (sandbox only); the table at the top of this README maps each API call to the code that makes it.
 - **AG Grid Community** renders the two data views in [public/app.js](public/app.js): the **purchases ledger** (time, item, merchant, link, amount, status, policy note, PayPal order and capture ids) and the **audit trail** (every policy decision and PayPal event). Both grids use sorting, filtering, resizable columns, tooltips and row animation, update live as state changes, and use the Quartz theme driven by the app's own CSS variables, so they follow the light/dark theme, accent colour and density setting. The Community build is MIT-licensed. The CSV export is produced by the server, not by the grid.
-- **Render** hosts the app from the [render.yaml](render.yaml) Blueprint (free tier, `/healthz` health check, secrets set in the dashboard), and `npm run smoke -- <url>` verifies a deployment end to end. See [Deploy](#render-free-tier-recommended). The live URL is listed in the Devpost submission.
+- **Render** is supported as a deployment target: the [render.yaml](render.yaml) Blueprint (free tier, `/healthz` health check, secrets set in the dashboard) is included, and `npm run smoke -- <url>` verifies any deployment end to end. See [Deploy](#render-free-tier). The live demo above runs on Vercel.
 - **Not used:** APIMatic, Postman and Astropods. They were left out on purpose to keep the integration surface small (see [DECISIONS.md](DECISIONS.md)). The HTTP contract is documented in [docs/API.md](docs/API.md).
 
 ## Quick start
@@ -145,7 +147,7 @@ Tests: policy unit tests (incl. expiry and pace); the live-web pipeline against 
 ## Deploy
 Both hosts run the same code. Set `NODE_ENV=production`, the PayPal sandbox credentials and an AI key on whichever you use.
 
-### Render (free tier; recommended)
+### Render (free tier)
 1. The repo is public (the MIT [LICENSE](LICENSE) shows in About).
 2. Render -> **New -> Blueprint** -> select the repo ([render.yaml](render.yaml)).
 3. Set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY` (and optionally `PAYPAL_WEBHOOK_ID`) in the dashboard. Optional: Turso variables for state that survives restarts.

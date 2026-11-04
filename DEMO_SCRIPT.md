@@ -2,7 +2,9 @@
 
 # DEMO_SCRIPT - target length 2:45 (hard limit: under 3:00; judges need not watch past 3:00; public on YouTube)
 
-Record the **deployed** app (or localhost) in **PayPal sandbox mode with a real sandbox buyer login**, 1080p, browser window about 1360x900, zoom 100%. No music (copyright rule). No third-party logos other than PayPal's own buttons. Warm the Render URL first (free instances sleep). Before recording: click **Reset demo**, and have the sandbox buyer email/password ready. Rehearse once so no real PayPal account is ever shown.
+> The published cut is https://youtu.be/Fwc9MWMl4ac (2:55). Its final narration lives in `video/shots.json`; the table below is the original plan and differs in places.
+
+Record the **deployed** app (or localhost) in **PayPal sandbox mode with a real sandbox buyer login**, 1080p, browser window about 1360x900, zoom 100%. No music (copyright rule). No third-party logos other than PayPal's own buttons. Warm the deployed URL first (cold starts). Before recording: click **Reset demo**, and have the sandbox buyer email/password ready. Rehearse once so no real PayPal account is ever shown.
 
 | Time | Scene | On screen | Narration |
 |---|---|---|---|
@@ -13,7 +15,7 @@ Record the **deployed** app (or localhost) in **PayPal sandbox mode with a real 
 | 1:30-1:50 | **Failure handling** | Dismiss the keyboard card; budget released; on the captured lamp click Refund: tick the acknowledgement, start it, show the safety countdown (record with `REFUND_COOLING_OFF_SECONDS=8`), then confirm | "Cancel, decline or let an order expire and the funds are released. Double clicks are idempotent, and any captured purchase can be refunded through PayPal in one click." |
 | 1:50-2:10 | **Ledger** | Side panel → **Ledger** → Audit trail tab in AG Grid; sort/filter by type | "Every policy decision, PayPal order and capture id, webhook confirmation and refund lands in this AG Grid ledger. Blocked purchases are first-class events, so you see exactly what the agent tried." |
 | 2:10-2:35 | **Bring your own agent** | Side panel → **Information** → Agent access (endpoint); paste the `claude mcp add` command in a terminal (token from the console snippet in the README, prepared before recording); ask that agent for something; the request appears in Approvals | "Mandate is also an MCP server. Connect any MCP agent with one command and it shops through the same rails: it can only request, the policy decides, and I still approve in PayPal." |
-| 2:35-2:45 | **Close** | App | "The model proposes, policy disposes, the human consents, PayPal settles, and the ledger remembers. Built with PayPal Orders and Webhooks, Gemini, MCP, AG Grid, deployed on Render. Thanks for watching." |
+| 2:35-2:45 | **Close** | App | "The model proposes, policy disposes, the human consents, PayPal settles, and the ledger remembers. Built with PayPal Orders and Webhooks, Gemini, MCP, AG Grid, deployed on Vercel. Thanks for watching." |
 
 Aim for 2:45 and **never exceed 3:00**. Rehearse the MCP scene beforehand; if it runs long, cut it to a 10-second clip. Official Rules (section 4) require the video to be public on YouTube, show the project working, and contain no third-party trademarks or copyrighted music: use no background music, and keep logos out of frame other than PayPal's own buttons and the sponsor tools you use.
 

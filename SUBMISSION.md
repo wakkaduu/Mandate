@@ -4,11 +4,11 @@
 
 **Tagline:** Spend rails for AI shopping agents - policy-checked, PayPal-approved, fully audited.
 
-**Links:** Repo: https://github.com/wakkaduu/Mandate - Live demo: `<Render URL>` - Video: `<YouTube URL>` (see DEMO_SCRIPT.md)
+**Links:** Repo: https://github.com/wakkaduu/Mandate - Live demo: https://mandate-flax.vercel.app - Video: https://youtu.be/Fwc9MWMl4ac (2:55)
 
-**Built with:** PayPal REST (Orders v2, Payments refund, Webhooks) and PayPal JS SDK (sandbox); Google Gemini (function calling) and Anthropic Claude; Model Context Protocol (MCP); Tavily, Serper and Gemini Google Search grounding for live product search; AG Grid Community (ledger and audit trail); Node.js, Express 5, libSQL (SQLite file or Turso); Render (and Vercel) for hosting; Claude Code as the AI coding assistant; Remotion, Playwright and ElevenLabs for the demo video. Full table with where each is used: README, "Built with".
+**Built with:** PayPal REST (Orders v2, Payments refund, Webhooks) and PayPal JS SDK (sandbox); Google Gemini (function calling) and Anthropic Claude; Model Context Protocol (MCP); Tavily, Serper and Gemini Google Search grounding for live product search; AG Grid Community (ledger and audit trail); Node.js, Express 5, libSQL (SQLite file or Turso); Vercel for the live demo (a Render Blueprint is also included); Claude Code as the AI coding assistant; Remotion, Playwright and ElevenLabs for the demo video. Full table with where each is used: README, "Built with".
 
-**Prizes targeted:** Grand Prize, Best Use of PayPal + AI, Best Use of Agentic Commerce, Best Use of AG Grid, Best Use of Render.
+**Prizes targeted:** Grand Prize, Best Use of PayPal + AI, Best Use of Agentic Commerce, Best Use of AG Grid.
 
 **AI tool:** Google Gemini via the Gemini API (function calling) reads the user's request and decides what to buy; PayPal's sandbox settles every approved purchase.
 
@@ -32,7 +32,7 @@ Everything lands in an AG Grid ledger with a complete audit trail: policy decisi
 - **PayPal**: orders are created server-side from server-verified web prices with `PayPal-Request-Id` idempotency and a unique `invoice_id`; the JS SDK button hands the server-created order id to PayPal; capture is server-side and the captured amount/currency is re-verified; refunds use the captures API; webhooks are verified with PayPal's `verify-webhook-signature` against the raw request bytes, deduplicated by event id, and can finish a capture the browser never reported.
 - **Works without the AI too**: a "search the web yourself" panel runs the same verified-offer pipeline, mandate pre-check and PayPal approval, so the demo survives model rate limits.
 - **Ledger**: AG Grid with sorting/filtering over purchases and the audit trail.
-- **Stack**: Node + Express, libSQL (a local SQLite file, or Turso when hosted), vanilla JS front end, Render free tier (Vercel also supported). Automated tests cover the policy, the live-web pipeline (price verification, SSRF guard), the full payment lifecycle against a PayPal simulator, webhooks, the Claude tool loop and the MCP server (driven by the official MCP client).
+- **Stack**: Node + Express, libSQL (a local SQLite file, or Turso when hosted), vanilla JS front end, hosted on Vercel (a Render Blueprint is also included). Automated tests cover the policy, the live-web pipeline (price verification, SSRF guard), the full payment lifecycle against a PayPal simulator, webhooks, the Claude tool loop and the MCP server (driven by the official MCP client).
 
 ## Challenges
 - Making "the AI can't overspend" a *guarantee* instead of a prompt: the cap, budget and category rules run server-side after the model speaks, and reservations are taken inside a transaction so concurrent proposals cannot both fit into the same remaining budget.
@@ -54,13 +54,11 @@ PayPal's Orders API fits agentic commerce well: server-created orders with idemp
 - Real merchant feeds (e.g. Channel3), shipping addresses, multi-currency, team mandates with shared budgets, and spend analytics.
 
 ## Testing instructions (for judges)
-**Hosted demo:** `<Render URL>` (free instance: the first load after idle can take about 30 seconds). Each visitor gets an isolated demo session, so no sign-up is needed.
+**Hosted demo:** https://mandate-flax.vercel.app (serverless: the first request after idle can take a few seconds). Each visitor gets an isolated demo session, so no sign-up is needed.
 
 0. On first load, set your own mandate when asked (nothing is pre-filled): for example a **$300** budget, a **$120** per-purchase cap and the categories office, electronics and home. Search, chat and purchases stay locked until you do.
 1. Click a suggestion chip, or type *"a desk lamp under $40, a mechanical keyboard and a 4K monitor"*. The agent searches the live web (each price is verified on the retailer's page by the server); the 4K monitor is blocked by the policy, the other items appear under **Approvals**. Open **Agent activity** to see each tool call. If the AI model is busy, use **Search the web yourself** (same checks, no model).
-2. Click the PayPal button and sign in with this **PayPal Sandbox buyer** account (fake money, sandbox only):
-   - Email: `<sandbox buyer email>`
-   - Password: `<sandbox buyer password>`
+2. Click the PayPal button and sign in with the **PayPal Sandbox buyer** account given in the Devpost testing instructions (fake money, sandbox only; the login is kept out of this public repository).
 3. Approve. The server captures the payment, the budget bar updates and the ledger records it. Try **Dismiss**, **Edit mandate** (raising a limit asks you to confirm it), **Refund** (two steps with a short safety delay) and the **Audit trail** tab. Purchases of $100 or more ask you to type the amount before the PayPal button appears.
 4. Optional: open **Information** in the side panel for the MCP endpoint, and **How it works** for a one-page explanation. Settings lets you switch theme, accent color, density and motion.
 

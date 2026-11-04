@@ -1,6 +1,6 @@
 # Storyboard: Mandate demo video (2:46)
 
-Written for: whoever records the screens and assembles the Remotion cut. This is the shot-by-shot companion to [VIDEO_BRIEF.md](VIDEO_BRIEF.md) (pipeline, checklist, rules) and [storyboard.json](storyboard.json) (scene ids and timing for the tooling).
+Written for: whoever records the screens and assembles the Remotion cut. This is the shot-by-shot companion to [VIDEO_BRIEF.md](../VIDEO_BRIEF.md) (pipeline, checklist, rules) and [storyboard.json](storyboard.json) (scene ids and timing for the tooling).
 
 - **Source of truth.** Scene ids, start/duration, narration and captions are copied verbatim from `storyboard.json`. If the two ever disagree, the JSON wins; update this file to match.
 - **What this adds.** Each scene is split into shots with a time window, a frame sketch, the narration beat that plays over it, and what moves.

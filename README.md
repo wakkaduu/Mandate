@@ -28,6 +28,13 @@ Only verified results become *offers*. `propose_purchase` takes an `offer_id`, s
 
 **Search yourself.** The UI also has a "Search the web yourself" panel (`POST /api/search`, `POST /api/offers/:id/request`): the human searches, sees each offer's `fits mandate` flag and price-verified tag, and requests a purchase. It uses the same offers, policy gate and PayPal approval, so the app stays usable when the AI model is rate-limited. Identical searches are cached for 30 minutes and real provider searches are capped per day (`WEB_SEARCHES_PER_DAY`), which protects the free-tier search quotas; several searches in one model turn run concurrently.
 
+### Safety rails for money decisions
+Treated as if real money were involved, even though payments run in PayPal's test environment:
+- **Refunds are two steps with a delay.** `POST /refund/request` opens a one-time confirmation (token shown once, only its hash stored); `POST /refund/confirm` works only after the cooling-off (`REFUND_COOLING_OFF_SECONDS`, default 30), before the request expires, and only once. The UI asks for an acknowledgement and shows a countdown; closing the dialog cancels the request. The old one-step refund endpoint is closed.
+- **High-value purchases need the amount typed** (`HIGH_VALUE_USD`, default $100) before the PayPal button appears; the server enforces it again at capture.
+- **Raising spending power needs confirmation.** A higher budget or cap, added categories, a looser pace, or a later/no expiry returns `409 CONFIRMATION_REQUIRED` with the list of changes until confirmed; lowering is immediate.
+- **Reset is closed in production**, money endpoints are rate limited per session, every step is in the audit trail, and the app sends a Content-Security-Policy (per-request nonce for PayPal's SDK), HSTS over HTTPS, Permissions-Policy and COOP.
+
 ### Bring your own agent (MCP)
 Mandate is also an **MCP server** (Streamable HTTP at `/mcp`). Issue a token for your session (the UI has no button for it; the endpoint is listed under **Information → Agent access**): open the app, then in the browser console run `await (await fetch('/api/connect', { method: 'POST' })).json()` (the token is shown once; `DELETE /api/connect` revokes it). Any MCP client can then use the same rails:
 ```bash
@@ -91,7 +98,7 @@ Uses an in-process PayPal **simulator** and, without an AI key, no shopping at a
 1. Click the first suggestion chip: *"Set up my desk: a lamp under $40, a mechanical keyboard and a 4K monitor"*.
 2. See the lamp and keyboard queued under **Approvals** and the 4K monitor **blocked** (over the $120 cap) with a reason and an alternative.
 3. Approve the lamp with the PayPal button (sandbox buyer login). Watch the budget bar and the ledger update.
-4. Click **Edit** on the mandate, raise the cap, then ask for the monitor again. Dismiss or decline another order to see the budget release; **Refund** a captured purchase to get funds back.
+4. Click **Edit** on the mandate, raise the cap, then ask for the monitor again. Dismiss or decline another order to see the budget release; **Refund** a captured purchase (two steps with a cooling-off delay) to get funds back.
 5. Open the **Audit trail** tab to see every policy decision and PayPal event.
 
 ## Tests

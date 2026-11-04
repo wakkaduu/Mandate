@@ -56,7 +56,7 @@ PayPal's Orders API fits agentic commerce well: server-created orders with idemp
 2. Click the PayPal button and sign in with this **PayPal Sandbox buyer** account (fake money, sandbox only):
    - Email: `<sandbox buyer email>`
    - Password: `<sandbox buyer password>`
-3. Approve. The server captures the payment, the budget bar updates and the ledger records it. Try **Dismiss**, **Refund**, **Edit** (raise the cap) and the **Audit trail** tab.
+3. Approve. The server captures the payment, the budget bar updates and the ledger records it. Try **Dismiss**, **Edit mandate** (raising a limit asks you to confirm it), **Refund** (two steps with a short safety delay) and the **Audit trail** tab. Purchases of $100 or more ask you to type the amount before the PayPal button appears.
 4. Optional: open **Information** in the side panel for the MCP endpoint, and **How it works** for a one-page explanation. Settings lets you switch theme, accent color, density and motion.
 
 **Run it yourself (no accounts needed):** `git clone`, `npm install`, `PAYPAL_MODE=mock npm start`, open http://localhost:3000. For the real PayPal sandbox, copy `.env.example` to `.env` and add sandbox credentials (README, Option B). Tests: `npm test`.

@@ -28,6 +28,13 @@ test('side panel links, pages and routes line up', () => {
   assert.deepEqual(shellRoutes.sort(), navRoutes);
 });
 
+test('no visible "sandbox" wording in the working UI; the one honest disclosure lives on the Information page', () => {
+  const visible = (f) => read(f).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const f of ['index.html', 'app.js', 'ui/shell.js', 'ui/dom.js', 'ui/icons.js', 'ui/prefs.js', 'styles.css', 'theme-boot.js']) assert.ok(!/sandbox/i.test(visible(f)), `${f} should not mention the sandbox`);
+  assert.match(visible('ui/pages.js'), /Sandbox \(test mode\)/, 'Information states the payment environment truthfully');
+  assert.equal((visible('ui/pages.js').match(/sandbox/gi) ?? []).length, 1);
+});
+
 test('removed controls are gone; the 4-step strip now lives only on the How it works page', () => {
   assert.ok(!/Reset demo|btn-reset|Connect an agent|btn-connect|dlg-connect/i.test(html + read('app.js')));
   assert.ok(!html.includes('class="steps"'));
@@ -47,6 +54,6 @@ test('no innerHTML / document.write in UI code; PayPal buttons are not restyled'
 
 test('preferences: every option list has a default and the boot script exposes them', () => {
   const boot = read('theme-boot.js');
-  for (const k of ['theme', 'accent', 'density', 'text', 'motion', 'sidebar', 'startPage']) assert.match(boot, new RegExp(`${k}: \\[`));
+  for (const k of ['theme', 'accent', 'density', 'text', 'motion', 'startPage']) assert.match(boot, new RegExp(`${k}: \\[`));
   assert.match(boot, /window\.__prefsCore/);
 });

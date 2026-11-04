@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { config, paypalConfigured, searchProviders } from './config.js';
 import { openDb, db, closeDb } from './db.js';
@@ -35,8 +35,8 @@ function limiter(max, windowMs) {
 }
 
 /** One error envelope for the whole API: { error: { code, message, requestId } } */
-function sendError(res, status, code, message) {
-  res.status(status).json({ error: { code, message, requestId: res.req?.id } });
+function sendError(res, status, code, message, details) {
+  res.status(status).json({ error: { code, message, ...(details !== undefined ? { details } : {}), requestId: res.req?.id } });
 }
 
 export function createApp() {
@@ -62,7 +62,13 @@ export function createApp() {
   const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 
   app.use((req, res, next) => {
-    res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Frame-Options': 'DENY' });
+    res.set({
+      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Frame-Options': 'DENY',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(self "https://www.paypal.com")',
+      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups', // PayPal's approval window is a popup that must be able to talk back
+      ...(config.csp ? { 'Content-Security-Policy': config.csp } : {}),
+      ...(req.secure || req.headers['x-forwarded-proto'] === 'https' ? { 'Strict-Transport-Security': 'max-age=15552000; includeSubDomains' } : {}),
+    });
     next();
   });
 
@@ -127,6 +133,8 @@ export function createApp() {
       searchCacheMinutes: Math.round(config.web.searchCacheMs / 60_000),
       searchesPerDay: config.web.searchesPerDay,
       mcpPath: '/mcp',
+      refundCoolingSeconds: config.safety.refundCoolingSeconds,
+      highValueCents: config.safety.highValueCents,
       version: appVersion,
       model: agentModel(),
       webhooks: Boolean(config.paypal.webhookId),
@@ -152,7 +160,7 @@ export function createApp() {
     const b = req.body ?? {};
     res.json({ mandate: await svc.updateMandate(req.sid, {
       name: b.name, budget_cents: b.budget_cents, per_item_cap_cents: b.per_item_cap_cents, categories: b.categories,
-      expires_at: b.expires_at, max_per_hour: b.max_per_hour,
+      expires_at: b.expires_at, max_per_hour: b.max_per_hour, confirm_increase: b.confirm_increase === true,
     }) });
   }));
 
@@ -190,17 +198,41 @@ export function createApp() {
     res.json(await svc.proposePurchase(req.sid, { product_id: req.params.id, qty, rationale: 'Requested by you from the search results.' }));
   }));
 
-  app.post('/api/purchases/:id/capture', wrap(async (req, res) => res.json(await svc.capturePurchase(req.sid, req.params.id))));
+  // Money-moving endpoints: rate limited per session, and the irreversible ones need a confirmation.
+  const moneyLimit = limiter(20, 60_000);
+  const guarded = (fn) => wrap(async (req, res) => {
+    if (!moneyLimit(req.sid)) throw new AppError(429, 'RATE_LIMITED', 'Too many payment actions in a short time. Wait a minute and try again.');
+    return fn(req, res);
+  });
+  app.post('/api/purchases/:id/capture', guarded(async (req, res) => res.json(await svc.capturePurchase(req.sid, req.params.id))));
+  app.post('/api/purchases/:id/confirm', guarded(async (req, res) => res.json({ purchase: await svc.confirmPurchase(req.sid, req.params.id, req.body?.amount_cents) })));
   app.post('/api/purchases/:id/cancel', wrap(async (req, res) => res.json({ purchase: await svc.cancelPurchase(req.sid, req.params.id) })));
-  app.post('/api/purchases/:id/refund', wrap(async (req, res) => res.json({ purchase: await svc.refundPurchase(req.sid, req.params.id) })));
+  // Refunds are irreversible, so they are two steps with a cooling-off delay: request -> (wait) -> confirm with the one-time token.
+  app.post('/api/purchases/:id/refund/request', guarded(async (req, res) => res.json(await svc.requestRefund(req.sid, req.params.id))));
+  app.post('/api/purchases/:id/refund/confirm', guarded(async (req, res) => res.json({ purchase: await svc.confirmRefund(req.sid, req.params.id, req.body?.token) })));
+  app.delete('/api/purchases/:id/refund/request', guarded(async (req, res) => res.json(await svc.cancelRefundRequest(req.sid, req.params.id))));
+  app.post('/api/purchases/:id/refund', (_req, _res, next) => next(new AppError(409, 'CONFIRMATION_REQUIRED', 'Refunds need a two-step confirmation: POST /refund/request, wait for the cooling-off delay, then POST /refund/confirm.')));
   app.post('/api/purchases/:id/rerequest', wrap(async (req, res) => {
     const old = await svc.getPurchase(req.sid, req.params.id);
     if (!['declined', 'cancelled', 'expired', 'failed'].includes(old.status)) throw new AppError(409, 'BAD_STATE', `A ${old.status} purchase cannot be re-requested.`);
     res.json(await svc.proposePurchase(req.sid, { product_id: old.product_id, qty: old.qty, rationale: `Re-request of earlier ${old.status} purchase.` }));
   }));
-  app.post('/api/reset', wrap(async (req, res) => res.json({ mandate: await svc.resetSession(req.sid) })));
+  // Resetting deletes the ledger and audit trail of a session: not something a money-handling deployment should offer.
+  app.post('/api/reset', wrap(async (req, res) => {
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_RESET !== '1') throw new AppError(403, 'RESET_DISABLED', 'Resetting is disabled on this deployment: the ledger and audit trail are kept.');
+    res.json({ mandate: await svc.resetSession(req.sid) });
+  }));
 
   app.use('/api', (_req, res) => sendError(res, 404, 'NOT_FOUND', 'Not found'));
+
+  // ---- the page itself: a fresh CSP nonce per response (PayPal's SDK adds inline scripts and needs it)
+  app.get(['/', '/index.html'], wrap(async (_req, res) => {
+    const nonce = randomBytes(16).toString('base64');
+    const html = (await fs.promises.readFile(path.join(here, '..', 'public', 'index.html'), 'utf8')).replace('<meta name="csp-nonce" content="">', `<meta name="csp-nonce" content="${nonce}">`);
+    const csp = config.cspFor(nonce);
+    if (csp) res.set('Content-Security-Policy', csp);
+    res.set('Cache-Control', 'no-cache').type('html').send(html);
+  }));
 
   // ---- static
   // public/vendor/ag-grid is copied from node_modules by scripts/copy-vendor.mjs (postinstall / build)
@@ -209,7 +241,7 @@ export function createApp() {
   // ---- errors
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, _next) => {
-    if (err instanceof AppError) return sendError(res, err.status, err.code, err.message);
+    if (err instanceof AppError) return sendError(res, err.status, err.code, err.message, err.details);
     if (err?.type === 'entity.parse.failed') return sendError(res, 400, 'INVALID_JSON', 'Invalid JSON body');
     if (err?.type === 'entity.too.large') return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body too large');
     console.error('[error]', req.id, err);

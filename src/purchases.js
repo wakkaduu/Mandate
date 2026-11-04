@@ -1,6 +1,6 @@
 // Domain service: sessions, mandates, purchase lifecycle, PayPal reconciliation.
 // Every state change is audited. Amounts come only from stored offers (server-verified web prices).
-import { randomUUID, createHash, randomBytes } from 'node:crypto';
+import { randomUUID, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { db, tx } from './db.js';
 import { DEFAULT_MANDATE, CATEGORIES } from './categories.js';
 import { getOffer } from './offers.js';
@@ -9,10 +9,11 @@ import * as paypal from './paypal.js';
 import { config } from './config.js';
 
 export class AppError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details) {
     super(message);
     this.status = status;
     this.code = code;
+    if (details !== undefined) this.details = details;
   }
 }
 
@@ -110,9 +111,20 @@ export async function updateMandate(sid, input) {
   if (!Number.isInteger(cap) || cap < 100 || cap > budget) throw new AppError(400, 'BAD_INPUT', 'Per-purchase cap must be at least $1.00 and no more than the budget.');
   const known = new Set(listCategories());
   if (!Array.isArray(cats) || cats.some((c) => !known.has(c))) throw new AppError(400, 'BAD_INPUT', `Categories must be a subset of: ${[...known].join(', ')}.`);
+  // Anything that gives the agent MORE spending power is a big decision: the caller must confirm it explicitly.
+  const more = [];
+  if (budget > cur.budget_cents) more.push({ field: 'budget', from: money(cur.budget_cents), to: money(budget) });
+  if (cap > cur.per_item_cap_cents) more.push({ field: 'per-purchase cap', from: money(cur.per_item_cap_cents), to: money(cap) });
+  const added = cats.filter((c) => !cur.categories.includes(c));
+  if (added.length) more.push({ field: 'allowed categories', from: cur.categories.join(', ') || 'none', to: `${[...cur.categories, ...added].join(', ')}` });
+  if (cur.max_per_hour !== null && (pace === null || pace > cur.max_per_hour)) more.push({ field: 'purchase pace', from: `${cur.max_per_hour} per hour`, to: pace === null ? 'unlimited' : `${pace} per hour` });
+  if (cur.expires_at !== null && (expires === null || expires > cur.expires_at)) more.push({ field: 'expiry', from: new Date(cur.expires_at).toISOString().slice(0, 10), to: expires === null ? 'never' : new Date(expires).toISOString().slice(0, 10) });
+  if (more.length && input.confirm_increase !== true) {
+    throw new AppError(409, 'CONFIRMATION_REQUIRED', 'These changes give the agent more spending power. Confirm them to apply.', { changes: more });
+  }
   await (await db()).run('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=?, max_per_hour=?, updated_at=? WHERE session_id=?',
     [name, budget, cap, JSON.stringify(cats), expires, pace, now(), sid]);
-  await audit(sid, null, 'mandate.updated', `Budget ${money(budget)}, cap ${money(cap)}, categories: ${cats.join(', ') || 'none'}, pace ${pace ?? 'unlimited'}/h, expires ${expires ? new Date(expires).toISOString().slice(0, 10) : 'never'}`);
+  await audit(sid, null, 'mandate.updated', `${more.length ? '[increase confirmed] ' : ''}Budget ${money(budget)}, cap ${money(cap)}, categories: ${cats.join(', ') || 'none'}, pace ${pace ?? 'unlimited'}/h, expires ${expires ? new Date(expires).toISOString().slice(0, 10) : 'never'}`);
   return getMandate(sid);
 }
 
@@ -145,10 +157,13 @@ export async function listMessages(sid, limit = 40) {
 }
 
 // ---------------------------------------------------------------- purchases
+export const isHighValue = (cents) => cents >= config.safety.highValueCents;
+
 function view(p) {
   if (!p) return p;
   const { session_id, ...rest } = p;
-  return { ...rest, amount: centsToValue(p.amount_cents) };
+  const high = isHighValue(p.amount_cents);
+  return { ...rest, amount: centsToValue(p.amount_cents), high_value: high, needs_confirmation: high && !p.confirmed_at && p.status === STATUS.PENDING };
 }
 
 async function getRow(sid, id, exec) {
@@ -257,6 +272,9 @@ export async function capturePurchase(sid, id) {
   if (row.status !== STATUS.PENDING) {
     throw new AppError(409, 'BAD_STATE', `Purchase is ${row.status}; only pending purchases can be captured.`);
   }
+  if (isHighValue(row.amount_cents) && !row.confirmed_at) {
+    throw new AppError(409, 'CONFIRMATION_REQUIRED', `This is a high-value purchase (${money(row.amount_cents)}). Confirm the amount before paying.`);
+  }
   const claim = await (await db()).run("UPDATE purchases SET status='capturing', updated_at=? WHERE id=? AND status='pending'", [now(), row.id]);
   if (!claim.changes) {
     const cur = await getRow(sid, id);
@@ -349,6 +367,70 @@ export async function refundPurchase(sid, id) {
   return getPurchase(sid, id);
 }
 
+// ---------------------------------------------------------------- confirmations for big decisions
+
+/** High-value purchases: the human must type the exact amount before the payment can be made (enforced again at capture). */
+export async function confirmPurchase(sid, id, amountCents) {
+  const row = await getRow(sid, id);
+  if (row.status !== STATUS.PENDING) throw new AppError(409, 'BAD_STATE', `Purchase is ${row.status}; only pending purchases can be confirmed.`);
+  if (!isHighValue(row.amount_cents)) return view(row);
+  if (row.confirmed_at) return view(row);
+  if (!Number.isInteger(amountCents) || amountCents !== row.amount_cents) {
+    throw new AppError(400, 'AMOUNT_MISMATCH', `The amount you typed does not match ${money(row.amount_cents)}.`);
+  }
+  await (await db()).run('UPDATE purchases SET confirmed_at=?, updated_at=? WHERE id=? AND confirmed_at IS NULL', [now(), now(), row.id]);
+  await audit(sid, id, 'purchase.confirmed', `Human confirmed the high-value amount ${money(row.amount_cents)} before payment`);
+  return getPurchase(sid, id);
+}
+
+/**
+ * Refund step 1. Nothing moves yet: this opens a one-time confirmation that cannot be used until the cooling-off delay has
+ * passed, and that expires shortly after. The token is returned once and only its hash is stored.
+ */
+export async function requestRefund(sid, id) {
+  const row = await getRow(sid, id);
+  if (row.status === STATUS.REFUNDED) throw new AppError(409, 'BAD_STATE', 'This purchase was already refunded.');
+  if (row.status !== STATUS.CAPTURED || !row.paypal_capture_id) throw new AppError(409, 'BAD_STATE', 'Only captured purchases can be refunded.');
+  const token = randomBytes(24).toString('hex');
+  const t = now();
+  const availableAt = t + config.safety.refundCoolingSeconds * 1000;
+  const expiresAt = availableAt + config.safety.refundWindowSeconds * 1000;
+  const d = await db();
+  await d.run("DELETE FROM confirmations WHERE purchase_id = ? AND kind = 'refund' AND consumed_at IS NULL", [row.id]);
+  await d.run('INSERT INTO confirmations (id, session_id, purchase_id, kind, token_hash, available_at, expires_at, created_at) VALUES (?,?,?,?,?,?,?,?)',
+    [randomUUID(), sid, row.id, 'refund', sha(token), availableAt, expiresAt, t]);
+  await audit(sid, id, 'refund.requested', `Refund of ${money(row.amount_cents)} requested; it can be confirmed after ${config.safety.refundCoolingSeconds}s and the request expires after ${config.safety.refundWindowSeconds / 60} min`);
+  return { token, available_at: availableAt, expires_at: expiresAt, cooling_seconds: config.safety.refundCoolingSeconds, purchase: view(row) };
+}
+
+/** Refund step 2: valid token + cooling-off over + not expired + not used twice. Only then PayPal is asked to refund. */
+export async function confirmRefund(sid, id, token) {
+  const row = await getRow(sid, id);
+  const d = await db();
+  const c = await d.get("SELECT * FROM confirmations WHERE purchase_id = ? AND session_id = ? AND kind = 'refund' AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1", [row.id, sid]);
+  if (!c) throw new AppError(409, 'NO_REFUND_REQUEST', 'There is no open refund request for this purchase. Start one first.');
+  const given = Buffer.from(sha(token ?? ''), 'hex');
+  const want = Buffer.from(c.token_hash, 'hex');
+  if (given.length !== want.length || !timingSafeEqual(given, want)) throw new AppError(403, 'BAD_CONFIRMATION', 'That confirmation is not valid.');
+  const t = now();
+  if (t > c.expires_at) throw new AppError(410, 'CONFIRMATION_EXPIRED', 'The refund request expired. Start a new one.');
+  if (t < c.available_at) {
+    const wait = Math.ceil((c.available_at - t) / 1000);
+    throw new AppError(425, 'TOO_EARLY', `Refunds have a cooling-off delay. You can confirm in ${wait}s.`, { retry_after_seconds: wait, available_at: c.available_at });
+  }
+  const use = await d.run('UPDATE confirmations SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL', [t, c.id]);
+  if (!use.changes) throw new AppError(409, 'NO_REFUND_REQUEST', 'This confirmation was already used.');
+  await audit(sid, id, 'refund.confirmed', `Human confirmed the refund of ${money(row.amount_cents)} after the cooling-off period`);
+  return refundPurchase(sid, id);
+}
+
+export async function cancelRefundRequest(sid, id) {
+  const row = await getRow(sid, id);
+  const r = await (await db()).run("DELETE FROM confirmations WHERE purchase_id = ? AND session_id = ? AND kind = 'refund' AND consumed_at IS NULL", [row.id, sid]);
+  if (r.changes) await audit(sid, id, 'refund.cancelled', 'Refund request cancelled by the human; nothing was refunded');
+  return { cancelled: r.changes > 0 };
+}
+
 // ---------------------------------------------------------------- webhooks
 /**
  * Apply a verified PayPal webhook event. Idempotent on event id, and tolerant of ordering:
@@ -405,7 +487,7 @@ export async function applyWebhookEvent(event) {
 // ---------------------------------------------------------------- MCP connection tokens
 // Lets an external agent (Claude Desktop/Code, any MCP client) spend through the SAME policy gate.
 // Only the sha256 of the token is stored; the plaintext is shown once at creation.
-const sha = (t) => createHash('sha256').update(t).digest('hex');
+const sha = (t) => createHash('sha256').update(String(t)).digest('hex');
 
 export async function issueMcpToken(sid) {
   const token = `mnd_${randomBytes(24).toString('base64url')}`;

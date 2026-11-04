@@ -1,6 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { boot, client, approve, buy } from './helpers.js';
+import { config } from '../src/config.js';
 
 let app;
 before(async () => { app = await boot(); });
@@ -103,7 +104,13 @@ test('category restrictions are enforced', async () => {
   assert.match(chair.reason, /CATEGORY_NOT_ALLOWED|OVER_ITEM_CAP/);
 });
 
-test('refund releases budget', async () => {
+const refund = async (c, id) => {
+  const r = await c.post(`/api/purchases/${id}/refund/request`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  return c.post(`/api/purchases/${id}/refund/confirm`, { token: r.body.token });
+};
+
+test('refund (two-step) releases budget and is idempotent', async () => {
   const c = client(app.base);
   await buy(c, 'plant-pothos');
   let s = await state(c);
@@ -111,11 +118,150 @@ test('refund releases budget', async () => {
   await approve(app.base, p.paypal_order_id);
   await c.post(`/api/purchases/${p.id}/capture`);
   assert.equal((await state(c)).mandate.captured_cents, 1800);
-  const refund = await c.post(`/api/purchases/${p.id}/refund`);
-  assert.equal(refund.body.purchase.status, 'refunded');
+  const done = await refund(c, p.id);
+  assert.equal(done.body.purchase.status, 'refunded');
   s = await state(c);
   assert.equal(s.mandate.committed_cents, 0);
-  assert.equal((await c.post(`/api/purchases/${p.id}/refund`)).body.purchase.status, 'refunded'); // idempotent
+  const types = s.audit.map((a) => a.type);
+  for (const t of ['refund.requested', 'refund.confirmed', 'paypal.refunded']) assert.ok(types.includes(t), t);
+  assert.equal((await c.post(`/api/purchases/${p.id}/refund/request`)).status, 409, 'already refunded');
+});
+
+test('refund hardening: no direct refund, cooling-off delay, wrong/used/expired tokens, cancel, session isolation', async () => {
+  const c = client(app.base);
+  await buy(c, 'mat-desk');
+  const p = byProduct(await state(c), 'mat-desk');
+  await approve(app.base, p.paypal_order_id);
+  await c.post(`/api/purchases/${p.id}/capture`);
+
+  assert.equal((await c.post(`/api/purchases/${p.id}/refund`)).status, 409, 'the one-step refund endpoint is closed');
+  assert.equal((await c.post(`/api/purchases/${p.id}/refund/confirm`, { token: 'x' })).body.error.code, 'NO_REFUND_REQUEST', 'confirm without a request');
+
+  const saved = config.safety.refundCoolingSeconds;
+  config.safety.refundCoolingSeconds = 20;
+  try {
+    const req = await c.post(`/api/purchases/${p.id}/refund/request`);
+    assert.equal(req.body.cooling_seconds, 20);
+    assert.ok(req.body.available_at - Date.now() > 15_000);
+    assert.ok(!JSON.stringify((await state(c)).audit).includes(req.body.token), 'the token never reaches the audit trail');
+
+    const early = await c.post(`/api/purchases/${p.id}/refund/confirm`, { token: req.body.token });
+    assert.equal(early.status, 425);
+    assert.equal(early.body.error.code, 'TOO_EARLY');
+    assert.ok(early.body.error.details.retry_after_seconds > 0);
+    assert.equal(byProduct(await state(c), 'mat-desk').status, 'captured', 'nothing refunded during the cooling-off');
+
+    const other = client(app.base); await other.get('/api/state');
+    assert.equal((await other.post(`/api/purchases/${p.id}/refund/request`)).status, 404, 'other sessions cannot touch it');
+
+    const { db } = await import('../src/db.js');
+    await (await db()).run("UPDATE confirmations SET available_at = ? WHERE purchase_id = ?", [Date.now() - 1000, p.id]);   // cooling-off over
+    assert.equal((await c.post(`/api/purchases/${p.id}/refund/confirm`, { token: 'wrong-token' })).body.error.code, 'BAD_CONFIRMATION');
+    assert.equal((await c.post(`/api/purchases/${p.id}/refund/confirm`, {})).body.error.code, 'BAD_CONFIRMATION');
+    assert.equal((await c.post(`/api/purchases/${p.id}/refund/confirm`, { token: { a: 1 } })).body.error.code, 'BAD_CONFIRMATION');
+
+    // cancelling the request kills the token
+    assert.equal((await c.raw('DELETE', `/api/purchases/${p.id}/refund/request`, {})).body.cancelled, true);
+    assert.equal((await c.post(`/api/purchases/${p.id}/refund/confirm`, { token: req.body.token })).body.error.code, 'NO_REFUND_REQUEST');
+
+    // expiry
+    const req2 = await c.post(`/api/purchases/${p.id}/refund/request`);
+    await (await db()).run("UPDATE confirmations SET available_at = ?, expires_at = ? WHERE purchase_id = ? AND consumed_at IS NULL", [Date.now() - 5000, Date.now() - 1000, p.id]);
+    assert.equal((await c.post(`/api/purchases/${p.id}/refund/confirm`, { token: req2.body.token })).body.error.code, 'CONFIRMATION_EXPIRED');
+
+    // a valid token works exactly once
+    const req3 = await c.post(`/api/purchases/${p.id}/refund/request`);
+    await (await db()).run("UPDATE confirmations SET available_at = ? WHERE purchase_id = ? AND consumed_at IS NULL", [Date.now() - 1000, p.id]);
+    const ok = await c.post(`/api/purchases/${p.id}/refund/confirm`, { token: req3.body.token });
+    assert.equal(ok.body.purchase.status, 'refunded');
+    assert.equal((await c.post(`/api/purchases/${p.id}/refund/confirm`, { token: req3.body.token })).status, 409, 'token is single-use');
+  } finally { config.safety.refundCoolingSeconds = saved; }
+  const types = (await state(c)).audit.map((a) => a.type);
+  for (const t of ['refund.requested', 'refund.cancelled', 'refund.confirmed']) assert.ok(types.includes(t), t);
+});
+
+test('high-value purchases need the amount typed before they can be paid (enforced at capture)', async () => {
+  const saved = config.safety.highValueCents;
+  config.safety.highValueCents = 3000;                      // $30: the $34 lamp now counts as high-value
+  try {
+    const c = client(app.base);
+    await buy(c, 'lamp-aurora', 'mat-desk');                // mat is $24: below the threshold
+    const s = await state(c);
+    const lamp = byProduct(s, 'lamp-aurora');
+    const mat = byProduct(s, 'mat-desk');
+    assert.equal(lamp.high_value, true);
+    assert.equal(lamp.needs_confirmation, true);
+    assert.equal(mat.high_value, false);
+    await approve(app.base, lamp.paypal_order_id);
+    const early = await c.post(`/api/purchases/${lamp.id}/capture`);
+    assert.equal(early.status, 409);
+    assert.equal(early.body.error.code, 'CONFIRMATION_REQUIRED');
+    assert.equal((await c.post(`/api/purchases/${lamp.id}/confirm`, { amount_cents: 3300 })).body.error.code, 'AMOUNT_MISMATCH');
+    assert.equal((await c.post(`/api/purchases/${lamp.id}/confirm`, {})).status, 400);
+    const ok = await c.post(`/api/purchases/${lamp.id}/confirm`, { amount_cents: 3400 });
+    assert.equal(ok.body.purchase.needs_confirmation, false);
+    assert.ok((await state(c)).audit.some((a) => a.type === 'purchase.confirmed'));
+    assert.equal((await c.post(`/api/purchases/${lamp.id}/capture`)).body.purchase.status, 'captured');
+    // below the threshold nothing extra is needed
+    await approve(app.base, mat.paypal_order_id);
+    assert.equal((await c.post(`/api/purchases/${mat.id}/capture`)).body.purchase.status, 'captured');
+  } finally { config.safety.highValueCents = saved; }
+});
+
+test('mandate changes that give the agent MORE spending power need explicit confirmation', async () => {
+  const c = client(app.base);
+  await c.get('/api/state');
+  // decreases and neutral edits go straight through
+  assert.equal((await c.put('/api/mandate', { budget_cents: 20000, per_item_cap_cents: 8000, categories: ['office'] })).status, 200);
+  // increases are refused until confirmed, with a machine-readable list of what would change
+  const up = await c.put('/api/mandate', { budget_cents: 50000, categories: ['office', 'home'] });
+  assert.equal(up.status, 409);
+  assert.equal(up.body.error.code, 'CONFIRMATION_REQUIRED');
+  assert.deepEqual(up.body.error.details.changes.map((x) => x.field).sort(), ['allowed categories', 'budget']);
+  assert.equal((await state(c)).mandate.budget_cents, 20000, 'nothing changed');
+  assert.equal((await c.put('/api/mandate', { budget_cents: 50000, categories: ['office', 'home'], confirm_increase: 'yes' })).status, 409, 'only boolean true counts');
+  const ok = await c.put('/api/mandate', { budget_cents: 50000, categories: ['office', 'home'], confirm_increase: true });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.mandate.budget_cents, 50000);
+  assert.ok((await state(c)).audit.some((a) => a.type === 'mandate.updated' && /increase confirmed/.test(a.detail)));
+  // pace/expiry loosening counts too
+  assert.equal((await c.put('/api/mandate', { max_per_hour: 3, expires_at: Date.now() + 86400_000 })).status, 200);
+  assert.equal((await c.put('/api/mandate', { max_per_hour: null })).status, 409);
+  assert.equal((await c.put('/api/mandate', { expires_at: null })).status, 409);
+  assert.equal((await c.put('/api/mandate', { max_per_hour: null, expires_at: null, confirm_increase: true })).status, 200);
+  // invalid input is rejected as invalid, not asked to confirm
+  assert.equal((await c.put('/api/mandate', { budget_cents: 99999999, confirm_increase: true })).status, 400);
+});
+
+test('the page carries a fresh CSP nonce per response, and API responses carry the policy without one', async () => {
+  const get = async () => { const r = await fetch(`${app.base}/`); return { html: await r.text(), csp: r.headers.get('content-security-policy') }; };
+  const [a, b] = [await get(), await get()];
+  const nonce = (x) => /<meta name="csp-nonce" content="([A-Za-z0-9+/=]{16,})">/.exec(x.html)?.[1];
+  assert.ok(nonce(a) && nonce(b));
+  assert.notEqual(nonce(a), nonce(b));
+  assert.ok(a.csp.includes(`'nonce-${nonce(a)}'`));
+  assert.ok(!(await fetch(`${app.base}/api/config`)).headers.get('content-security-policy').includes('nonce-'));
+});
+
+test('hardening: reset is closed in production; money endpoints are rate limited; CSP/HSTS headers', async () => {
+  const c = client(app.base);
+  await c.get('/api/state');
+  process.env.NODE_ENV = 'production';
+  try { assert.equal((await c.post('/api/reset')).body.error.code, 'RESET_DISABLED'); } finally { delete process.env.NODE_ENV; }
+  assert.equal((await c.post('/api/reset')).status, 200, 'still available for local development');
+
+  let limited = 0;
+  for (let i = 0; i < 25; i++) if ((await c.post('/api/purchases/nope/capture')).status === 429) limited++;
+  assert.ok(limited >= 4, `rate limit hit ${limited}x`);
+
+  const res = await fetch(`${app.base}/api/config`, { headers: { 'x-forwarded-proto': 'https' } });
+  const csp = res.headers.get('content-security-policy');
+  assert.match(csp, /default-src 'self'/);
+  assert.match(csp, /script-src 'self' https:\/\/\*\.paypal\.com/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.ok(!/unsafe-inline[^;]*;[^]*script-src/.test(csp) && !/script-src[^;]*unsafe-inline/.test(csp), 'no inline scripts');
+  assert.match(res.headers.get('strict-transport-security'), /max-age=\d+/);
+  assert.equal(res.headers.get('x-frame-options'), 'DENY');
 });
 
 test('sessions are isolated', async () => {
@@ -216,7 +362,8 @@ test('pace limit blocks a runaway agent; expiry blocks everything; both are edit
   assert.match(byProduct(s, 'mouse-ergo').reason, /OVER_PACE/);
   assert.equal(s.mandate.committed_cents, 2400 + 1800);
 
-  assert.equal((await c.put('/api/mandate', { max_per_hour: null })).body.mandate.max_per_hour, null);
+  assert.equal((await c.put('/api/mandate', { max_per_hour: null })).status, 409, 'unlimited pace is more spending power: needs confirmation');
+  assert.equal((await c.put('/api/mandate', { max_per_hour: null, confirm_increase: true })).body.mandate.max_per_hour, null);
   assert.equal((await c.put('/api/mandate', { max_per_hour: 0 })).status, 400);
   assert.equal((await c.put('/api/mandate', { expires_at: Date.now() - 1000 })).status, 400);
   assert.equal((await c.put('/api/mandate', { expires_at: Date.now() + 86400_000 })).status, 200);

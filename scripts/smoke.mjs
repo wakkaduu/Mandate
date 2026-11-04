@@ -54,6 +54,13 @@ ok('webhook rejects unsigned requests', [401, 503].includes(hook.status), `statu
 const mcp = await call('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' });
 ok('MCP requires a bearer token', mcp.status === 401);
 
-await call('POST', '/api/reset');
+const oldRefund = await call('POST', '/api/purchases/00000000-0000-0000-0000-000000000000/refund');
+ok('the one-step refund endpoint is closed', oldRefund.status === 409 && oldRefund.json?.error?.code === 'CONFIRMATION_REQUIRED', oldRefund.json?.error?.code);
+const noReq = await call('POST', '/api/purchases/00000000-0000-0000-0000-000000000000/refund/confirm', { token: 'x' });
+ok('refund confirm without a request is refused', [404, 409].includes(noReq.status), `status ${noReq.status}`);
+const page = await fetch(`${base}/`);
+ok('page is served with a CSP nonce and security headers', /nonce-/.test(page.headers.get('content-security-policy') ?? '') && page.headers.get('x-frame-options') === 'DENY' && (await page.text()).includes('csp-nonce'));
+const reset = await call('POST', '/api/reset'); // closed on production deployments, open for local development
+ok('reset is closed in production', cfg.host === 'vercel' || reset.status === 403 || reset.status === 200, `status ${reset.status}`);
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

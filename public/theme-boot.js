@@ -9,11 +9,10 @@
     density: ['comfortable', 'compact'],
     text: ['default', 'large'],
     motion: ['system', 'full', 'reduced', 'off'],
-    sidebar: ['expanded', 'collapsed'],
     startPage: ['overview', 'search', 'ledger'],
   };
   const DEFAULTS = {
-    theme: 'system', accent: 'sky', density: 'comfortable', text: 'default', motion: 'system', sidebar: 'expanded', startPage: 'overview',
+    theme: 'system', accent: 'sky', density: 'comfortable', text: 'default', motion: 'system', startPage: 'overview',
     showChips: true, traceOpen: false, showHint: true, hintDismissed: false,
   };
   const BOOLS = ['showChips', 'traceOpen', 'showHint', 'hintDismissed'];
@@ -38,7 +37,6 @@
     root.dataset.density = prefs.density;
     root.dataset.text = prefs.text;
     root.dataset.motion = motion;
-    root.dataset.sidebar = prefs.sidebar;
     return { scheme, motion };
   }
 

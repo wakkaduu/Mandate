@@ -58,6 +58,13 @@ export const config = {
     serperKey: env.SERPER_API_KEY || '',
     serperBase: env.SERPER_BASE_URL || 'https://google.serper.dev',
   },
+  // Safety rails for money-moving decisions. Refunds are two-step with a cooling-off delay; purchases at or above the
+  // high-value threshold need the human to type the amount before the payment can be made.
+  safety: {
+    refundCoolingSeconds: Math.max(0, Number(env.REFUND_COOLING_OFF_SECONDS ?? 30)),
+    refundWindowSeconds: 10 * 60,      // after the cooling-off opens, the confirmation stays valid this long
+    highValueCents: Math.max(100, Math.round(Number(env.HIGH_VALUE_USD ?? 100) * 100)),
+  },
   web: {
     allowPrivate: env.WEB_ALLOW_PRIVATE_HOSTS === '1',
     // Strict by default: only offers whose price the server read from the retailer's own page can be bought.
@@ -73,6 +80,21 @@ export const config = {
 };
 
 /** Search providers that have credentials, in the order they will be tried. */
+// Content-Security-Policy: only this origin plus PayPal's SDK/button frames. 'unsafe-inline' for styles only (AG Grid and
+// inline widths set by the UI). The page itself is served with a per-request nonce (server.js) that the PayPal SDK is
+// told to use for the inline scripts it adds; nothing else may run inline. DISABLE_CSP=1 is an escape hatch for debugging.
+config.cspFor = (nonce) => (env.DISABLE_CSP === '1' ? '' : [
+  "default-src 'self'",
+  `script-src 'self' ${nonce ? `'nonce-${nonce}' ` : ''}https://*.paypal.com https://*.paypalobjects.com`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https://*.paypal.com https://*.paypalobjects.com",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.paypal.com https://*.paypalobjects.com",
+  "frame-src 'self' https://*.paypal.com",
+  "frame-ancestors 'none'", "base-uri 'none'", "object-src 'none'", "form-action 'self'",
+].join('; '));
+config.csp = config.cspFor();
+
 export function searchProviders() {
   const have = { tavily: Boolean(config.search.tavilyKey), serper: Boolean(config.search.serperKey), gemini: Boolean(config.gemini.apiKey) };
   return config.search.providers.filter((p) => have[p]);

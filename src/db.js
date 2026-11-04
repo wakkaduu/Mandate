@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS purchases (
   amount_cents INTEGER NOT NULL,       -- computed server-side from a stored offer, never from the client/agent
   product_url TEXT,                    -- the retailer page the offer came from
   price_verified INTEGER NOT NULL DEFAULT 0, -- 1 = server read the price from the retailer's page
+  confirmed_at INTEGER,                -- human confirmed a high-value purchase (typed the amount) before it could be paid
   status TEXT NOT NULL,                -- see src/purchases.js STATUS
   reason TEXT,                         -- policy / failure explanation
   rationale TEXT,                      -- agent's stated reason for the purchase
@@ -57,6 +58,18 @@ CREATE TABLE IF NOT EXISTS offers (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS confirmations (   -- two-step confirmations for irreversible actions (refunds)
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  purchase_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  token_hash TEXT NOT NULL,            -- sha256 of the one-time token; the token itself is only ever shown once
+  available_at INTEGER NOT NULL,       -- cooling-off: not confirmable before this
+  expires_at INTEGER NOT NULL,
+  consumed_at INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_confirmations_purchase ON confirmations(purchase_id, kind);
 CREATE TABLE IF NOT EXISTS search_cache (
   key TEXT PRIMARY KEY,                -- normalised query + filters
   offer_ids TEXT NOT NULL,             -- JSON array of offers.id
@@ -129,6 +142,7 @@ async function init() {
     await add('messages', 'trace', 'TEXT');
     await add('purchases', 'product_url', 'TEXT');
     await add('purchases', 'price_verified', 'INTEGER NOT NULL DEFAULT 0');
+    await add('purchases', 'confirmed_at', 'INTEGER');
     await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_mcp ON sessions(mcp_token_hash) WHERE mcp_token_hash IS NOT NULL');
     await q.run("INSERT INTO app_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(SCHEMA_VERSION)]);
   }
@@ -137,6 +151,7 @@ async function init() {
   await q.run('DELETE FROM sessions WHERE created_at < ?', [Date.now() - 7 * 24 * 3600 * 1000]);
   await q.run('DELETE FROM offers WHERE updated_at < ?', [Date.now() - 7 * 24 * 3600 * 1000]);
   await q.run('DELETE FROM search_cache WHERE created_at < ?', [Date.now() - 24 * 3600 * 1000]);
+  await q.run('DELETE FROM confirmations WHERE expires_at < ?', [Date.now() - 24 * 3600 * 1000]);
   await q.run('DELETE FROM search_log WHERE created_at < ?', [Date.now() - 48 * 3600 * 1000]);
   return q;
 }

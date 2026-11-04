@@ -1,57 +1,61 @@
-# UI spec: app shell, Settings, Information (Nov 4, 2026)
+# UI spec: "statement" layout, Settings, Information (Nov 4, 2026)
 
-Context: judges and testers use Mandate for minutes, not hours, so the design favours *orientation* (where am I, what is waiting) and *trust* (this is sandbox money, here is exactly what is configured) over density.
+Context: people use Mandate to decide about money, for minutes at a time. The interface should feel like an account statement, not a chat toy: calm, flat, legible, and unmistakably in control of what gets spent.
+
+## What changed in this pass and why
+- **"Too AI" fixed by removing the AI look, not the AI:** no side panel of rounded cards, no glows/gradients/blur, no pill shapes, no icon-in-colored-square badges, no sparkles, no marketing tagline. Instead: hairline rules, square corners (2 px), serif headings, mono figures in tables, one dark section.
+- **Panels re-placed.** Top masthead with text tabs (Account, Search, Ledger) and quieter links (How it works, Information, Settings, theme) replaces the left side panel. The home page is a *statement* (Midnight band: available to spend, bar, terms with dotted leaders) over a two-column *workbench*: requests awaiting approval on the left, the assistant docked on the right (sticky, ivory). On small screens the assistant comes first, then the requests; the masthead becomes a Menu list.
+- **Real-money posture.** The UI is written and guarded as if money were real (see Safety below). The payment environment is stated truthfully in one place only (Information -> Payments). It is not repeated as a banner, footer chip or hint, but it is not hidden either: the contest requires the PayPal test environment and judges must not be misled about what they are testing (docs and the PayPal popup say so as well).
 
 ## Information architecture
 ```
-Side panel
-  Workspace   Overview (mandate + shopping agent + approvals)   Search   Ledger (purchases | audit trail)
-  Learn       How it works          <- optional, never shown inline; a dismissible hint on Overview points to it
-  System      Information           Settings
-  Footer      "PayPal Sandbox: no real money" (always visible, not a setting)
-Top bar       side-panel toggle | page title + one-line purpose | "N waiting for approval" (off-Overview) | theme quick toggle
+Masthead   Mandate | Account  Search  Ledger ............ How it works  Information  Settings  [theme]
+Account    statement (mandate) / Awaiting your approval + Recent  |  Assistant (dock)
+Search     query + max price -> offer rows (price, verified, fits mandate, Request purchase)
+Ledger     Purchases | Audit trail (AG Grid, themed from the same tokens)
+How it works   4 numbered steps, policy checks, where prices come from, can / cannot
+Information    Payments, Assistant, Web search, Data and hosting, Agent access (document sections)
+Settings       Appearance, Motion, Layout and content, This device (document sections)
 ```
-Routing is hash based (`#/overview` ...), so every page is linkable and the back button works. Focus moves to the page heading on navigation.
+Hash routes, focus moves to the page heading on navigation.
 
-## Removed (by request)
-Header pills (PayPal / AI), "Connect an agent", "Reset demo", and the 4-step strip on the main page. Their content moved: PayPal/AI/search/hosting facts -> **Information**; the 4 steps -> **How it works**. The MCP server and `/api/connect`, `/api/reset` endpoints still exist; only the buttons are gone.
+## Safety (what the UI asks of the human, and what the server enforces anyway)
+| Decision | UI | Server |
+|---|---|---|
+| Refund | Dialog with item/amount/capture, acknowledgement checkbox, **Start refund**, visible countdown (cooling-off), then **Confirm refund**; closing cancels | `refund/request` -> wait -> `refund/confirm` with one-time token (425 early, 403 wrong, 410 expired, single use); one-step refund closed |
+| Payment >= HIGH_VALUE_USD | "Review and confirm": type the exact amount; PayPal button appears only after | `confirm` + `capture` refuses until confirmed (409) |
+| More spending power in the mandate | Inline confirmation listing every change + acknowledgement | `409 CONFIRMATION_REQUIRED` until `confirm_increase: true`; audited |
+| Reset | not in the UI | disabled when `NODE_ENV=production` |
 
-## Settings (stored in this browser only; `theme-boot.js` applies them before first paint)
-Appearance: theme (system/light/dark), accent (Sky Blue, Midnight, Link Blue, Success Green, Ink), density (comfortable/compact), text size. Motion: system / full / reduced / off (+ preview). Layout: side panel, start page, suggested prompts, open agent activity, "new here?" hint. Reset with Undo. None of it touches the mandate, payments or the server.
-
-## Palette (Nov 4, 2026, from the user's brand palette; guarded by `test/ui-palette.test.js`)
+## Palette (from the user's brand palette; guarded by `test/ui-palette.test.js`)
 | Role | Value | Where it is used |
 |---|---|---|
-| Sky Blue | `#60cdff` | Hero accent: primary buttons (Send, Search), user chat bubble, nav badge, step numbers, spent bar, brand mark. **Always with Ink text (11.7:1); white on Sky is 1.8:1 and never used.** |
-| Midnight Blue | `#002991` | Immersive dark section: the Mandate budget card (white text 12.2:1). Also accent *text* on light surfaces (12.2:1) and the active-nav indicator. Dark theme is deeper Midnight shades. |
-| Ink Black | `#000000` | Wordmark and primary text (21:1). White in the dark theme. |
-| Pure White | `#ffffff` | Canvas, cards, sidebar. |
-| Warm Ivory | `#f1efea` | Feature surfaces: "New here?" hint, How-it-works step cards, chat replies, chips, segmented controls, env note. No link text on ivory (Link Blue is 4.2:1 there). |
-| Link Blue | `#0070e0` | Hyperlinks and focus rings in the light theme (4.8:1). Sky in the dark theme. |
-| Success Green | `#007a56` | Positive actions (Request purchase, Save mandate, simulated approve), "ok" tags, checks. White on it 5.4:1. |
-| Error Red | `#c0212b` | Failures: blocked/declined, Dismiss, error toast (white on it 6.0:1). |
-| Gold `#ffd140` (legacy) | | Only the "awaiting approval" stripes on the Midnight card and warning tints; text on those tints is `#7a5200` (6.2:1). |
-| Pay Blue `#00457C`, Pal Blue `#0079C1` (legacy) | | Not used. |
+| Sky Blue | `#60cdff` | Hero accent: primary buttons, your chat bubble, badge, spent bar, brand mark. **Always with Ink text (11.7:1); white on Sky is 1.8:1 and never used.** |
+| Midnight Blue | `#002991` | The statement band (white text 12.2:1); accent text and active-tab underline on light surfaces. Dark theme = deeper Midnight shades. |
+| Ink Black / Pure White | `#000000` / `#ffffff` | Wordmark and text / canvas. |
+| Warm Ivory | `#f1efea` | Feature surfaces: hint line, assistant dock, segmented controls, replies. No link text on ivory (Link Blue is 4.2:1 there). |
+| Link Blue | `#0070e0` | Hyperlinks and focus rings in light mode (4.8:1); Sky in dark mode. |
+| Success `#007a56` / Error `#c0212b` | | Positive actions and checks / failures, blocked, Dismiss, error toast. |
+| Gold `#ffd140` (legacy) | | Only the "awaiting approval" stripes and warning tints. Pay Blue `#00457C` and Pal Blue `#0079C1` are unused. |
 
-Settings accent choices are Sky Blue (default), Midnight, Link Blue, Success Green and Ink; each declares its own text-on-accent color. Dark theme lifts Midnight to `#2b5fe0` for buttons so they stay visible, and uses Sky for links/focus.
+Accent choices in Settings: Sky Blue (default), Midnight, Link Blue, Success Green, Ink, each with its own text-on-accent color.
 
-## Tokens
-Semantic CSS variables in `public/styles.css` (`--surface`, `--ink`, `--muted`, `--line`, `--link`, `--focus`, `--accent*`, `--ok/--warn/--bad`, `--hero*`, `--pad`, `--gap`, motion `--t*`, `--move`). AG Grid reads the same variables.
+## Typography and shape
+Serif (Iowan Old Style / Palatino / Georgia) for page titles, section headings, the wordmark and step numerals; system sans for text; system mono for amounts and ids in rows and the ledger. Corners 2 px, 1 px rules, 2 px ink rule above each section heading. No external fonts.
 
-## Motion rules
-Page change: 220-420 ms fade + 10 px rise. New chat replies / search cards / recent items rise in; **cards that contain PayPal's buttons only fade** (no transform near the SDK iframe). Budget bar and remaining amount animate; pending-budget stripes move (full motion only). `reduced`: no movement, short fades. `off`: every animation and transition 0 ms. "System" follows `prefers-reduced-motion`.
+## Motion
+Short fades and a few pixels of rise (page change, new rows and replies); the budget figure counts and the bar eases; no bouncing, popping or shimmering. Rows that contain PayPal's buttons only fade (no transform near the SDK iframe). `reduced`: no movement; `off`: every animation 0 ms; `system` follows `prefers-reduced-motion`.
 
 ## PayPal / contest rules this UI keeps
-- PayPal's buttons are rendered by PayPal's SDK in `.pp-slot` and are never restyled, filtered, scaled or wrapped in transforms (`test/ui-markup.test.js` guards the CSS). We add no PayPal logos or marks of our own; "PayPal" appears only as plain text.
-- The sandbox / no-real-money notice is always visible (side-panel footer + hint under the button) and cannot be hidden in Settings.
-- No third-party logos or product photos (Official Rules: no third-party trademarks or copyrighted material in the submission or video). Retailer names appear as text only.
-- No secrets in the UI or in `/api/config` (only "configured / missing"); Information has a "Copy diagnostics" that contains none.
+- PayPal's buttons are rendered by PayPal's SDK in `.pp-slot` and are never restyled, filtered, scaled or wrapped in transforms (`test/ui-markup.test.js` guards the CSS). We add no PayPal logos or marks; "PayPal" appears only as plain text.
+- The payment environment is disclosed truthfully (Information, README, SUBMISSION, the PayPal popup). We do not claim live payments: the contest requires PayPal's test environment, and the config refuses live hosts.
+- No third-party logos or product photos; retailer names appear as text only.
+- No secrets in the UI or in `/api/config`.
 
 ## Accessibility
-Skip link; landmarks (`nav`, `main`, `aside`, `header`); `aria-current="page"`; real radio/checkbox inputs for every setting (keyboard + screen reader); visible focus rings; off-canvas drawer is `inert` when closed; Esc closes it; 38 px+ targets; text size and density settings; `prefers-reduced-motion` respected.
+Skip link; landmarks; `aria-current="page"`; real radio/checkbox inputs for every setting; visible focus rings (Link Blue / Sky, >= 3:1); the mobile menu is `inert` when closed and closes on Esc; dialogs are native `<dialog>` (focus trap, Esc); countdown is a `role=status`; targets >= 34 px; text size and density settings; reduced motion respected; status is always spelled out in words, never color alone.
 
 ## Open questions
-- Should MCP token issuing return to the UI (e.g. Information → Agent access)? Currently console/API only.
-- PayPal's SDK button stays PayPal's default gold (`color: 'gold'` is one of the SDK's own options). The refreshed brand de-emphasises gold, but changing the button color is PayPal's call, not ours; if you want a different official option (blue/black/white) it is a one-word change, and I'd confirm it against PayPal's button guidelines first.
-- Dark-mode PayPal button container shows PayPal's own light corners; it is PayPal's iframe, so we leave it alone.
-- Using PayPal's colors can read as affiliation. Mitigations in place: our own wordmark and mark, no PayPal logo, and the footer line 'PayPal Sandbox: no real money'. Consider adding 'Not affiliated with PayPal' to the Devpost text.
+- MCP token issuing still has no button (console/API only), as requested earlier.
+- PayPal's SDK button stays PayPal's default gold; changing to another official option is PayPal's call and a one-word change (`color`), after checking PayPal's button guidelines.
+- Using PayPal-like colors can read as affiliation: own wordmark/mark, no PayPal logo; consider "Not affiliated with PayPal" in the Devpost text.

@@ -52,7 +52,7 @@ test('focus rings and non-text UI use colors with >= 3:1 against their backgroun
   assert.ok(ratio(P.link, P.white) >= 3 && ratio(P.link, P.ivory) >= 3, 'light focus ring (Link Blue)');
   assert.ok(ratio(P.sky, '#001245') >= 3 && ratio(P.sky, '#001a5c') >= 3, 'dark focus ring (Sky)');
   assert.ok(ratio(P.midnight, P.white) >= 3, 'active-nav indicator uses Midnight, not Sky (sky on white is 1.8:1)');
-  assert.match(css, /\.nav-item\[aria-current="page"\]::before \{[^}]*background: var\(--accent-text\)/);
+  assert.match(css, /\.nav-item\[aria-current="page"\] \{[^}]*border-bottom-color: var\(--accent-text\)/);
   assert.match(css, /:focus-visible \{ outline: 2px solid var\(--focus\)/);
 });
 

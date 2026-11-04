@@ -1,5 +1,5 @@
-// Mandate front-end. Plain ES modules, no build step. All dynamic text goes through text nodes (no innerHTML).
-// Layout: side panel + pages (ui/shell.js), preferences (ui/prefs.js), Settings/Information pages (ui/pages.js).
+// Mandate front-end. Plain ES modules, no build step. All dynamic text goes through text nodes (no HTML strings).
+// Layout: masthead + pages (ui/shell.js), preferences (ui/prefs.js), Settings/Information pages (ui/pages.js).
 import { $, h, usd, safeHref, tweenText, motionOn } from './ui/dom.js';
 import { initShell, onRoute, setPendingApprovals, navigate } from './ui/shell.js';
 import { getPrefs, setPref, onPrefs } from './ui/prefs.js';
@@ -8,8 +8,7 @@ import { renderSettings, renderInfo } from './ui/pages.js';
 let cfg = {};
 let state = null;
 let sdkReady = null;
-let sandboxHintShown = false;
-let chatBusy = false; // pause background polling while the agent works so the progress bubble is not replaced
+let chatBusy = false; // pause background polling while the assistant works so the progress bubble is not replaced
 let gridP; let gridA;
 
 const SUGGESTIONS = [
@@ -19,9 +18,9 @@ const SUGGESTIONS = [
   'Get a USB-C hub with HDMI',
 ];
 
-const sourceLine = (p) => h('div', { class: 'pmeta' },
-  `${p.merchant} - ${p.category}`,
-  safeHref(p.product_url) ? [' - ', h('a', { href: safeHref(p.product_url), target: '_blank', rel: 'noopener noreferrer' }, 'view product page')] : null,
+const sourceLine = (p) => h('p', { class: 'req-meta' },
+  `${p.merchant} · ${p.category}`,
+  safeHref(p.product_url) ? [' · ', h('a', { href: safeHref(p.product_url), target: '_blank', rel: 'noopener noreferrer' }, 'product page')] : null,
   h('span', { class: `tag ${p.price_verified ? 'ok' : 'warn'}`, title: p.price_verified ? 'The server read this price from the retailer\'s own page' : 'Price comes from the search result and was not confirmed on the retailer page' }, p.price_verified ? 'price verified' : 'price unverified'));
 
 async function api(path, { method = 'GET', body } = {}) {
@@ -35,7 +34,7 @@ async function api(path, { method = 'GET', body } = {}) {
   try { data = await res.json(); } catch { /* ignore */ }
   if (!res.ok) {
     const err = data.error ?? {};
-    throw Object.assign(new Error(err.message || `Request failed (${res.status})`), { status: res.status, code: err.code, requestId: err.requestId });
+    throw Object.assign(new Error(err.message || `Request failed (${res.status})`), { status: res.status, code: err.code, details: err.details, requestId: err.requestId });
   }
   return data;
 }
@@ -45,7 +44,7 @@ let toastTimer;
 function toast(msg, bad = false, action = null) {
   const t = $('toast');
   t.className = `toast${bad ? ' bad' : ''}`;
-  t.replaceChildren(h('span', {}, msg), action ? h('button', { class: 'toast-action', type: 'button', onclick: () => { t.hidden = true; action.run(); } }, action.label) : null);
+  t.replaceChildren(...[h('span', {}, msg), action ? h('button', { class: 'toast-action', type: 'button', onclick: () => { t.hidden = true; action.run(); } }, action.label) : null].filter(Boolean));
   t.hidden = false;
   t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
   clearTimeout(toastTimer);
@@ -58,6 +57,8 @@ function loadPayPalSdk() {
   sdkReady = new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(cfg.paypalClientId)}&currency=${cfg.currency}&intent=capture&components=buttons`;
+    const nonce = document.querySelector('meta[name=csp-nonce]')?.content; // PayPal's SDK applies this to the inline scripts it adds
+    if (nonce) { s.nonce = nonce; s.setAttribute('data-csp-nonce', nonce); }
     s.onload = () => resolve(window.paypal);
     s.onerror = () => { sdkReady = null; reject(new Error('Could not load the PayPal JS SDK.')); };
     document.head.append(s);
@@ -66,22 +67,18 @@ function loadPayPalSdk() {
 }
 
 async function renderPayPalButtons(p, slot) {
-  if (cfg.paypalMode === 'sandbox' && cfg.paypalConfigured && !sandboxHintShown) {
-    sandboxHintShown = true;
-    slot.after(h('div', { class: 'hint' }, 'PayPal Sandbox: sign in with your sandbox buyer account (no real money moves).'));
-  }
   if (cfg.paypalMode === 'mock') {
     slot.append(
       h('div', { class: 'actions' },
         h('button', { class: 'btn positive', onclick: () => mockApprove(p, 'ok') }, 'Approve with PayPal (simulated)'),
-        h('button', { class: 'btn ghost', onclick: () => mockApprove(p, 'decline') }, 'Simulate declined card'),
+        h('button', { class: 'btn', onclick: () => mockApprove(p, 'decline') }, 'Simulate declined card'),
       ),
-      h('div', { class: 'pmeta' }, 'Offline PayPal simulator - real sandbox buttons appear when PAYPAL_MODE=sandbox.'),
+      h('p', { class: 'req-meta' }, 'Offline PayPal simulator (development only).'),
     );
     return;
   }
   if (!cfg.paypalConfigured) {
-    slot.append(h('div', { class: 'pmeta' }, 'PayPal sandbox credentials are not configured on the server.'));
+    slot.append(h('p', { class: 'req-meta' }, 'PayPal credentials are not configured on the server.'));
     return;
   }
   try {
@@ -91,11 +88,11 @@ async function renderPayPalButtons(p, slot) {
       // The order already exists: the SERVER created it with server-side prices. The browser only hands back its id.
       createOrder: () => p.paypal_order_id,
       onApprove: () => capture(p.id),
-      onCancel: () => toast('Approval cancelled. The order is still pending - approve it again or dismiss it.'),
+      onCancel: () => toast('Approval cancelled. The order is still waiting: approve it again or dismiss it.'),
       onError: (err) => { console.error(err); toast('PayPal reported an error. You can try again or dismiss this order.', true); },
     }).render(slot);
   } catch (e) {
-    slot.append(h('div', { class: 'pmeta' }, e.message));
+    slot.append(h('p', { class: 'req-meta' }, e.message));
   }
 }
 
@@ -108,7 +105,7 @@ async function mockApprove(p, outcome) {
 async function capture(id) {
   try {
     const r = await api(`/api/purchases/${id}/capture`, { method: 'POST' });
-    if (r.outcome === 'declined') toast('PayPal declined that payment method. The budget was released - re-request to try again.', true);
+    if (r.outcome === 'declined') toast('PayPal declined that payment method. The budget was released. Re-request to try again.', true);
     else if (r.outcome === 'pending_review') toast('Payment is under PayPal review; it will finalise automatically.');
     else toast(`Paid ${usd(r.purchase.amount_cents)} for ${r.purchase.product_name} via PayPal.`);
   } catch (e) {
@@ -125,6 +122,104 @@ async function simple(path, okMsg) {
   await refresh();
 }
 
+const fact = (k, v, mono = false) => h('div', {}, h('dt', {}, k), h('dd', { class: mono ? 'mono' : null }, v));
+const parseUsd = (str) => { const t = String(str).trim(); const n = Number(t.replace(/[$,\s]/g, '')); return t !== '' && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : NaN; };
+
+// ------------------------------------------------------------------ refund: two steps, with a cooling-off delay
+const refundFlow = { id: null, token: null, timer: null };
+
+function clearRefundTimer() { clearInterval(refundFlow.timer); refundFlow.timer = null; }
+
+function openRefund(p) {
+  Object.assign(refundFlow, { id: p.id, token: null });
+  clearRefundTimer();
+  $('refund-facts').replaceChildren(fact('Item', p.product_name), fact('Merchant', p.merchant), fact('Amount to refund', usd(p.amount_cents), true), fact('PayPal capture', p.paypal_capture_id ?? '-', true));
+  $('refund-ack').checked = false;
+  $('refund-ack').disabled = false;
+  $('refund-count').hidden = true;
+  $('refund-error').hidden = true;
+  const go = $('refund-go');
+  go.textContent = 'Start refund';
+  go.dataset.step = 'start';
+  go.disabled = true;
+  $('dlg-refund').showModal();
+}
+
+async function cancelRefundRequest(quiet = false) {
+  clearRefundTimer();
+  if (!refundFlow.token) return;
+  const id = refundFlow.id;
+  refundFlow.token = null;
+  try { await api(`/api/purchases/${id}/refund/request`, { method: 'DELETE' }); if (!quiet) toast('Refund request cancelled. Nothing was refunded.'); } catch { /* the request expires on its own */ }
+}
+
+async function refundGo() {
+  const go = $('refund-go');
+  const err = $('refund-error');
+  err.hidden = true;
+  if (go.dataset.step === 'start') {
+    go.disabled = true;
+    $('refund-ack').disabled = true;
+    try {
+      const r = await api(`/api/purchases/${refundFlow.id}/refund/request`, { method: 'POST' });
+      refundFlow.token = r.token;
+      const count = $('refund-count');
+      count.hidden = false;
+      const tick = () => {
+        const left = Math.ceil((r.available_at - Date.now()) / 1000);
+        if (left > 0) { count.textContent = `Safety delay: you can confirm in ${left}s. You can cancel any time.`; return; }
+        clearRefundTimer();
+        count.textContent = 'You can confirm now. The request expires in a few minutes.';
+        go.textContent = 'Confirm refund';
+        go.dataset.step = 'confirm';
+        go.disabled = false;
+        go.focus();
+      };
+      tick();
+      if (go.dataset.step === 'start') refundFlow.timer = setInterval(tick, 250);
+    } catch (e) {
+      err.textContent = e.message; err.hidden = false;
+      $('refund-ack').disabled = false;
+      go.disabled = !$('refund-ack').checked;
+    }
+    return;
+  }
+  go.disabled = true;
+  try {
+    const r = await api(`/api/purchases/${refundFlow.id}/refund/confirm`, { method: 'POST', body: { token: refundFlow.token } });
+    refundFlow.token = null;
+    $('dlg-refund').close();
+    toast(`Refunded ${usd(r.purchase.amount_cents)} for ${r.purchase.product_name} through PayPal.`);
+    await refresh();
+  } catch (e) {
+    err.textContent = e.message; err.hidden = false;
+    if (e.code === 'TOO_EARLY') go.disabled = false;
+  }
+}
+
+// ------------------------------------------------------------------ high-value purchases: type the amount first
+let confirming = null;
+function openConfirm(p) {
+  confirming = p;
+  $('confirm-facts').replaceChildren(fact('Item', p.product_name), fact('Merchant', p.merchant), fact('Amount', usd(p.amount_cents), true));
+  $('confirm-amount').value = '';
+  $('confirm-go').disabled = true;
+  $('confirm-error').hidden = true;
+  $('dlg-confirm').showModal();
+  $('confirm-amount').focus();
+}
+
+async function submitConfirm(ev) {
+  ev.preventDefault();
+  if (!confirming || parseUsd($('confirm-amount').value) !== confirming.amount_cents) return;
+  try {
+    await api(`/api/purchases/${confirming.id}/confirm`, { method: 'POST', body: { amount_cents: confirming.amount_cents } });
+    $('dlg-confirm').close();
+    toast('Amount confirmed. You can now pay with PayPal.');
+    await refresh();
+  } catch (e) { $('confirm-error').textContent = e.message; $('confirm-error').hidden = false; }
+}
+
 // ------------------------------------------------------------------ rendering
 let approvalsSig = '';
 const seenApprovals = new Set();
@@ -135,7 +230,7 @@ const splitReason = (reason) => {
   const m = /^([A-Z_]+): (.*)$/.exec(reason ?? '');
   return m ? { code: m[1], text: m[2] } : { code: null, text: reason ?? '' };
 };
-/** Policy checklist: all green for allowed purchases; the failing rule (and those after it, skipped) for blocked ones. */
+/** Policy checklist: all passed for allowed purchases; the failing rule (and those after it, skipped) for blocked ones. */
 function policyChecks(p) {
   const failCode = p.status === 'blocked' ? splitReason(p.reason).code : null;
   let failed = false;
@@ -146,10 +241,11 @@ function policyChecks(p) {
   }));
 }
 
-// The mandate card is built once and updated in place, so the budget bar and the remaining amount animate smoothly.
+// The statement is built once and updated in place, so the budget bar and the remaining amount animate smoothly.
 const mv = {};
+const term = (k, v) => h('div', { class: 'term' }, h('dt', {}, k), h('dd', {}, v));
 function buildMandate() {
-  mv.name = h('div', { class: 'm-name' });
+  mv.name = h('p', { class: 'st-name' });
   mv.remaining = h('span', { class: 'num' });
   mv.of = h('small');
   mv.spent = h('i', { class: 'spent' });
@@ -157,19 +253,21 @@ function buildMandate() {
   mv.bar = h('div', { class: 'bar', role: 'img' }, mv.spent, mv.held);
   mv.legendSpent = h('span', {}, h('b', { class: 'sw-spent' }), h('span'));
   mv.legendHeld = h('span', {}, h('b', { class: 'sw-held' }), h('span'));
-  mv.cap = h('b'); mv.pace = h('b'); mv.exp = h('b');
+  mv.cap = h('span'); mv.pace = h('span'); mv.exp = h('span');
   mv.cats = h('span', { class: 'cats' });
   $('mandate').replaceChildren(
-    mv.name,
-    h('div', { class: 'm-remaining' }, mv.remaining, ' ', mv.of),
-    mv.bar,
-    h('div', { class: 'legend' }, mv.legendSpent, mv.legendHeld),
-    h('div', { class: 'rules' },
-      h('div', {}, h('span', {}, 'Per-purchase cap'), mv.cap),
-      h('div', {}, h('span', {}, 'Pace'), mv.pace),
-      h('div', {}, h('span', {}, 'Expires'), mv.exp),
-      h('div', {}, h('span', {}, 'Allowed'), mv.cats),
-      h('div', {}, h('span', {}, 'Settlement'), h('b', {}, 'PayPal, human-approved'))),
+    h('div', { class: 'st-main' },
+      mv.name,
+      h('p', { class: 'st-label' }, 'Available to spend'),
+      h('p', { class: 'figure' }, mv.remaining, mv.of),
+      mv.bar,
+      h('div', { class: 'legend' }, mv.legendSpent, mv.legendHeld)),
+    h('dl', { class: 'terms' },
+      term('Per-purchase limit', mv.cap),
+      term('Pace', mv.pace),
+      term('Expires', mv.exp),
+      term('Categories', mv.cats),
+      term('Settlement', 'PayPal, human-approved')),
   );
 }
 
@@ -180,10 +278,10 @@ function renderMandate(m) {
   mv.name.textContent = m.name;
   tweenText(mv.remaining, mv.last ?? m.remaining_cents, m.remaining_cents, usd);
   mv.last = m.remaining_cents;
-  mv.of.textContent = `left of ${usd(m.budget_cents)}`;
+  mv.of.textContent = `of ${usd(m.budget_cents)}`;
   mv.spent.style.width = pct(m.captured_cents);
   mv.held.style.width = pct(held);
-  mv.bar.setAttribute('aria-label', `${usd(m.captured_cents)} spent, ${usd(held)} awaiting approval, ${usd(m.remaining_cents)} remaining`);
+  mv.bar.setAttribute('aria-label', `${usd(m.captured_cents)} spent, ${usd(held)} awaiting approval, ${usd(m.remaining_cents)} available`);
   mv.legendSpent.lastChild.textContent = `Spent ${usd(m.captured_cents)}`;
   mv.legendHeld.lastChild.textContent = `Awaiting approval ${usd(held)}`;
   mv.cap.textContent = usd(m.per_item_cap_cents);
@@ -193,7 +291,7 @@ function renderMandate(m) {
   const catKey = m.categories.join('|');
   if (mv.catKey !== catKey) {
     mv.catKey = catKey;
-    mv.cats.replaceChildren(...(m.categories.length ? m.categories.map((c) => h('span', { class: 'cat' }, c)) : [h('span', { class: 'muted' }, 'nothing')]));
+    mv.cats.replaceChildren(...(m.categories.length ? m.categories.map((c) => h('span', { class: 'cat' }, c)) : [h('span', {}, 'none')]));
   }
 }
 
@@ -205,7 +303,7 @@ function renderMessages(msgs) {
   if (sig === msgSig) return; // keep open <details> / scroll position stable across polling refreshes
   msgSig = sig;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
-  const list = msgs.length ? msgs : [{ role: 'assistant', content: 'Hi! I shop within your mandate. Tell me what you need and I will request each item. Anything outside the rules gets blocked before it ever reaches PayPal.' }];
+  const list = msgs.length ? msgs : [{ role: 'assistant', content: 'Tell me what you need and I will request each item. Anything outside your mandate is blocked before it reaches PayPal, and you approve every payment yourself.' }];
   const firstNew = msgCount < 0 ? Infinity : msgCount; // nothing animates on first paint; later only genuinely new replies do
   box.replaceChildren(...list.map((m, i) => {
     const enter = m.role === 'assistant' && i >= firstNew ? ' enter' : '';
@@ -220,45 +318,55 @@ function renderMessages(msgs) {
   if (atBottom || msgs.length < 3) box.scrollTop = box.scrollHeight;
 }
 
+function payBlock(p, slot) {
+  if (p.status !== 'pending') return h('p', { class: 'req-meta' }, p.reason || 'Processing payment...');
+  if (p.needs_confirmation) {
+    return h('div', { class: 'notice warn' },
+      h('p', {}, h('strong', {}, `High-value purchase (${usd(p.amount_cents)}). `), 'Confirm the amount before you can pay.'),
+      h('button', { class: 'btn small primary', type: 'button', onclick: () => openConfirm(p) }, 'Review and confirm'));
+  }
+  return h('div', { class: 'req-pay' }, slot);
+}
+
 function renderApprovals(purchases) {
   const pending = purchases.filter((p) => ['pending', 'capturing', 'reserving'].includes(p.status));
   const recent = purchases.filter((p) => !['pending', 'capturing', 'reserving'].includes(p.status)).slice(0, 6);
   $('approvals-count').textContent = pending.length ? `${pending.length} waiting` : '';
   setPendingApprovals(pending.length);
-  const sig = JSON.stringify([...pending, ...recent].map((p) => [p.id, p.status, p.reason]));
+  const sig = JSON.stringify([...pending, ...recent].map((p) => [p.id, p.status, p.reason, p.needs_confirmation]));
   if (sig === approvalsSig) return;
   approvalsSig = sig;
-  sandboxHintShown = false;
 
   const root = $('approvals');
   const kids = [];
-  if (!pending.length) kids.push(h('div', { class: 'empty' }, 'Nothing waiting. Ask the agent to find and buy something from the web - allowed purchases land here for one-tap PayPal approval.'));
+  if (!pending.length) kids.push(h('p', { class: 'empty' }, 'Nothing is waiting for you. Ask the assistant to find something, or search the web yourself. Allowed requests appear here for your approval.'));
   for (const p of pending) {
     const isNew = !approvalsFirst && !seenApprovals.has(p.id);
     const slot = h('div', { class: 'pp-slot' });
-    kids.push(h('div', { class: `pcard pending${isNew ? ' enter-fade' : ''}` },
-      h('div', { class: 'prow' }, h('span', { class: 'pname' }, `${p.product_name}${p.qty > 1 ? ` x${p.qty}` : ''}`), h('span', { class: 'pamt' }, usd(p.amount_cents))),
+    const showButtons = p.status === 'pending' && !p.needs_confirmation;
+    kids.push(h('article', { class: `req pending${isNew ? ' enter-fade' : ''}` },
+      h('div', { class: 'req-head' }, h('h3', { class: 'req-title' }, `${p.product_name}${p.qty > 1 ? ` x${p.qty}` : ''}`), h('span', { class: 'req-amt' }, usd(p.amount_cents))),
       sourceLine(p),
-      p.rationale ? h('div', { class: 'why' }, /^Requested by you/.test(p.rationale) ? p.rationale : `Agent: ${p.rationale}`) : null,
+      p.rationale ? h('p', { class: 'req-why' }, /^Requested by you/.test(p.rationale) ? p.rationale : `Assistant: ${p.rationale}`) : null,
       policyChecks(p),
-      p.status === 'pending' ? slot : h('div', { class: 'pmeta' }, p.reason || 'Processing payment...'),
-      p.status === 'pending' ? h('div', { class: 'actions' }, h('button', { class: 'btn small ghost danger', onclick: () => simple(`/api/purchases/${p.id}/cancel`, 'Dismissed. Budget released.') }, 'Dismiss')) : null,
+      payBlock(p, slot),
+      p.status === 'pending' ? h('div', { class: 'req-actions' }, h('button', { class: 'btn small danger', onclick: () => simple(`/api/purchases/${p.id}/cancel`, 'Dismissed. Budget released.') }, 'Dismiss')) : null,
     ));
-    if (p.status === 'pending') queueMicrotask(() => renderPayPalButtons(p, slot));
+    if (showButtons) queueMicrotask(() => renderPayPalButtons(p, slot));
   }
   if (recent.length) {
-    kids.push(h('div', { class: 'recent-title' }, 'Recent'));
+    kids.push(h('h2', { class: 'recent-title' }, 'Recent'));
     for (const p of recent) {
       const retry = ['declined', 'cancelled', 'expired', 'failed'].includes(p.status);
       const isNew = !approvalsFirst && !seenApprovals.has(p.id);
-      kids.push(h('div', { class: `pcard${isNew ? ' enter' : ''}` },
-        h('div', { class: 'prow' }, h('span', { class: 'pname' }, p.product_name), h('span', { class: `status ${p.status}` }, p.status)),
-        h('div', { class: 'pmeta' }, `${usd(p.amount_cents)}${p.paypal_capture_id ? ` - capture ${p.paypal_capture_id}` : ''}`),
+      kids.push(h('article', { class: `req${isNew ? ' enter' : ''}` },
+        h('div', { class: 'req-head' }, h('h3', { class: 'req-title' }, p.product_name), h('span', { class: `status ${p.status}` }, p.status)),
+        h('p', { class: 'req-meta' }, `${usd(p.amount_cents)}${p.paypal_capture_id ? ` · capture ${p.paypal_capture_id}` : ''}`),
         p.status === 'blocked' ? policyChecks(p) : null,
-        p.reason ? h('div', { class: 'pmeta' }, splitReason(p.reason).text) : null,
-        (retry || p.status === 'captured') ? h('div', { class: 'actions' },
-          retry ? h('button', { class: 'btn small', onclick: () => simple(`/api/purchases/${p.id}/rerequest`, 'Re-requested - approve it above.') }, 'Re-request') : null,
-          p.status === 'captured' ? h('button', { class: 'btn small ghost', onclick: () => simple(`/api/purchases/${p.id}/refund`, 'Refunded through PayPal.') }, 'Refund') : null,
+        p.reason ? h('p', { class: 'req-meta' }, splitReason(p.reason).text) : null,
+        (retry || p.status === 'captured') ? h('div', { class: 'req-actions' },
+          retry ? h('button', { class: 'btn small', onclick: () => simple(`/api/purchases/${p.id}/rerequest`, 'Re-requested. Approve it above.') }, 'Re-request') : null,
+          p.status === 'captured' ? h('button', { class: 'btn small danger', onclick: () => openRefund(p) }, 'Refund…') : null,
         ) : null,
       ));
     }
@@ -284,10 +392,12 @@ function gridTheme() {
     headerBackgroundColor: cssVar('--surface-2'),
     headerTextColor: cssVar('--ink-2'),
     borderColor: cssVar('--line'),
-    accentColor: cssVar('--accent'),
+    accentColor: cssVar('--accent-text'),
     oddRowBackgroundColor: cssVar('--surface-2'),
     rowHoverColor: cssVar('--accent-soft'),
     fontFamily: 'inherit',
+    wrapperBorderRadius: 0,
+    borderRadius: 2,
     spacing: compact ? 5 : 8,
   });
 }
@@ -306,7 +416,7 @@ function ensureGrids() {
       { field: 'product_url', headerName: 'Link', width: 90, sortable: false, filter: false,
         cellRenderer: (params) => (safeHref(params.value) ? h('a', { href: safeHref(params.value), target: '_blank', rel: 'noopener noreferrer' }, 'open') : '') },
       { field: 'qty', width: 80 },
-      { field: 'amount_cents', headerName: 'Amount', valueFormatter: (p) => usd(p.value), width: 100, type: 'rightAligned' },
+      { field: 'amount_cents', headerName: 'Amount', valueFormatter: (p) => usd(p.value), width: 100, type: 'rightAligned', cellStyle: { fontFamily: 'var(--font-mono)' } },
       { field: 'status', cellRenderer: statusRenderer, width: 120 },
       { field: 'reason', headerName: 'Policy / note', flex: 1.6, minWidth: 200, tooltipField: 'reason' },
       { field: 'paypal_order_id', headerName: 'PayPal order', width: 150 },
@@ -332,7 +442,7 @@ function ensureGrids() {
 function render(s) {
   state = s;
   renderMandate(s.mandate);
-  if (!chatBusy) renderMessages(s.messages); // keep the progress bubble while the agent works
+  if (!chatBusy) renderMessages(s.messages); // keep the progress bubble while the assistant works
   renderApprovals(s.purchases);
   gridP?.setGridOption('rowData', s.purchases);
   gridA?.setGridOption('rowData', s.audit);
@@ -356,10 +466,10 @@ async function send(text) {
   $('chat-send').disabled = true;
   chatBusy = true;
   const box = $('messages');
-  const who = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode] ?? 'The agent';
+  const who = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode] ?? 'The assistant';
   const started = Date.now();
   const { el, label } = thinkingBubble(who);
-  const live = setInterval(refresh, 2000); // approvals appear as the agent proposes them
+  const live = setInterval(refresh, 2000); // requests appear as the assistant proposes them
   const tick = setInterval(() => { label.textContent = `${who} is searching the web and checking your mandate... ${Math.round((Date.now() - started) / 1000)}s`; }, 1000);
   box.append(h('div', { class: 'msg user enter' }, msg), el);
   box.scrollTop = box.scrollHeight;
@@ -378,7 +488,17 @@ async function send(text) {
   }
 }
 
-// ------------------------------------------------------------------ mandate editor
+// ------------------------------------------------------------------ mandate editor (increases need an explicit confirmation)
+let editNeedsConfirm = false;
+
+function resetEditConfirm() {
+  editNeedsConfirm = false;
+  $('edit-confirm').hidden = true;
+  $('edit-ack').checked = false;
+  $('edit-save').disabled = false;
+  $('edit-save').textContent = 'Save mandate';
+}
+
 function openEditor() {
   const m = state.mandate;
   const f = $('form-edit');
@@ -389,6 +509,7 @@ function openEditor() {
   f.elements.expires.value = m.expires_at ? new Date(m.expires_at).toISOString().slice(0, 10) : '';
   $('edit-cats').replaceChildren(...state.categories.map((c) => h('label', {}, h('input', { type: 'checkbox', value: c, checked: m.categories.includes(c) }), c)));
   $('edit-error').hidden = true;
+  resetEditConfirm();
   $('dlg-edit').showModal();
 }
 
@@ -404,11 +525,22 @@ async function saveEditor(ev) {
       max_per_hour: f.elements.pace.value === '' ? null : Number(f.elements.pace.value),
       // end of the chosen day, local time
       expires_at: f.elements.expires.value === '' ? null : new Date(`${f.elements.expires.value}T23:59:59`).getTime(),
+      confirm_increase: editNeedsConfirm && $('edit-ack').checked,
     } });
     $('dlg-edit').close();
     toast('Mandate updated.');
     await refresh();
   } catch (e) {
+    if (e.code === 'CONFIRMATION_REQUIRED' && e.details?.changes) {
+      editNeedsConfirm = true;
+      $('edit-changes').replaceChildren(...e.details.changes.map((c) => h('li', {}, `${c.field}: ${c.from} → ${c.to}`)));
+      $('edit-confirm').hidden = false;
+      $('edit-ack').checked = false;
+      $('edit-save').textContent = 'Confirm and apply';
+      $('edit-save').disabled = true;
+      $('edit-error').hidden = true;
+      return;
+    }
     $('edit-error').textContent = e.message;
     $('edit-error').hidden = false;
   }
@@ -418,35 +550,38 @@ async function saveEditor(ev) {
 function renderResults(offers, skipped) {
   const box = $('search-results');
   if (!offers.length) {
-    box.replaceChildren(h('div', { class: 'empty' }, 'No product pages with a readable price turned up for that. Try a more specific product name.'));
+    box.replaceChildren(h('p', { class: 'empty' }, 'No product pages with a readable price turned up for that. Try a more specific product name.'));
     return;
   }
-  const cards = offers.map((o, i) => h('div', { class: `pcard enter${o.fits_mandate ? '' : ' blocked-ish'}`, style: `--i:${i}` },
-    h('div', { class: 'prow' }, h('span', { class: 'pname' }, o.title), h('span', { class: 'pamt' }, usd(Math.round(o.price_usd * 100)))),
-    h('div', { class: 'pmeta' },
-      `${o.merchant} - ${o.category}`,
-      safeHref(o.url) ? [' - ', h('a', { href: safeHref(o.url), target: '_blank', rel: 'noopener noreferrer' }, 'view product page')] : null,
-      h('span', { class: `tag ${o.price_verified ? 'ok' : 'warn'}` }, o.price_verified ? 'price verified' : 'price unverified'),
-      h('span', { class: `tag ${o.fits_mandate ? 'ok' : 'warn'}`, title: o.mandate_issue || 'Within your mandate' }, o.fits_mandate ? 'fits mandate' : 'outside mandate')),
-    o.mandate_issue ? h('div', { class: 'pmeta' }, o.mandate_issue.replace(/^[A-Z_]+: /, '')) : null,
-    h('div', { class: 'actions' }, h('button', { class: 'btn small positive', type: 'button', onclick: (e) => requestOffer(o, e.currentTarget) }, 'Request purchase')),
+  const rows = offers.map((o, i) => h('article', { class: `offer enter${o.fits_mandate ? '' : ' outside'}`, style: `--i:${i}` },
+    h('div', { class: 'offer-body' },
+      h('h3', { class: 'offer-title' }, o.title),
+      h('p', { class: 'offer-meta' },
+        `${o.merchant} · ${o.category}`,
+        safeHref(o.url) ? [' · ', h('a', { href: safeHref(o.url), target: '_blank', rel: 'noopener noreferrer' }, 'product page')] : null,
+        h('span', { class: `tag ${o.price_verified ? 'ok' : 'warn'}` }, o.price_verified ? 'price verified' : 'price unverified'),
+        h('span', { class: `tag ${o.fits_mandate ? 'ok' : 'warn'}`, title: o.mandate_issue || 'Within your mandate' }, o.fits_mandate ? 'fits mandate' : 'outside mandate')),
+      o.mandate_issue ? h('p', { class: 'offer-note' }, o.mandate_issue.replace(/^[A-Z_]+: /, '')) : null),
+    h('div', { class: 'offer-side' },
+      h('p', { class: 'offer-price' }, usd(Math.round(o.price_usd * 100))),
+      h('button', { class: 'btn small positive', type: 'button', onclick: (e) => requestOffer(o, e.currentTarget) }, 'Request purchase')),
   ));
-  if (skipped) cards.push(h('div', { class: 'muted' }, skipped));
-  box.replaceChildren(...cards);
+  if (skipped) rows.push(h('p', { class: 'muted' }, skipped));
+  box.replaceChildren(...rows);
 }
 
 async function requestOffer(o, btn) {
   btn.disabled = true;
   try {
     const r = await api(`/api/offers/${encodeURIComponent(o.offer_id)}/request`, { method: 'POST', body: { qty: 1 } });
-    toast(r.allowed ? `Queued "${o.title.slice(0, 40)}" - approve it under Approvals.` : (r.reason || 'Blocked by your mandate.'), !r.allowed,
-      r.allowed ? { label: 'Go to Approvals', run: () => navigate('overview') } : null);
+    toast(r.allowed ? `Requested "${o.title.slice(0, 40)}". Approve it under Account.` : (r.reason || 'Blocked by your mandate.'), !r.allowed,
+      r.allowed ? { label: 'Go to Account', run: () => navigate('overview') } : null);
   } catch (e) { toast(e.message, true); }
   btn.disabled = false;
   await refresh();
 }
 
-const skeletons = () => [0, 1, 2].map((i) => h('div', { class: 'pcard skeleton', style: `--i:${i}`, 'aria-hidden': 'true' }, h('i', { class: 'sk w60' }), h('i', { class: 'sk w40' }), h('i', { class: 'sk w80' })));
+const skeletons = () => [0, 1, 2].map((i) => h('div', { class: 'offer skeleton', style: `--i:${i}`, 'aria-hidden': 'true' }, h('div', {}, h('i', { class: 'sk w60' }), h('i', { class: 'sk w40' }), h('i', { class: 'sk w80' }))));
 
 async function runSearch(e) {
   e.preventDefault();
@@ -456,12 +591,12 @@ async function runSearch(e) {
   const btn = $('search-btn');
   btn.disabled = true;
   btn.textContent = 'Searching...';
-  $('search-results').replaceChildren(h('div', { class: 'muted search-status' }, 'Searching the web and checking each price on the retailer page (about 10 seconds)...'), ...skeletons());
+  $('search-results').replaceChildren(h('p', { class: 'muted search-status' }, 'Searching the web and checking each price on the retailer page (about 10 seconds)...'), ...skeletons());
   try {
     const r = await api('/api/search', { method: 'POST', body: { query, ...(max > 0 ? { max_price_usd: max } : {}) } });
     renderResults(r.offers, r.skipped);
   } catch (err) {
-    $('search-results').replaceChildren(h('div', { class: 'empty' }, err.message));
+    $('search-results').replaceChildren(h('p', { class: 'empty' }, err.message));
   }
   btn.disabled = false;
   btn.textContent = 'Search';
@@ -471,7 +606,7 @@ async function runSearch(e) {
 function renderChips() {
   const on = getPrefs().showChips;
   $('chips').hidden = !on;
-  $('chips').replaceChildren(...(on ? SUGGESTIONS.map((s) => h('button', { class: 'chip', type: 'button', onclick: () => send(s) }, s)) : []));
+  $('chips').replaceChildren(...(on ? [h('span', { class: 'suggest-label' }, 'Try:'), ...SUGGESTIONS.map((s) => h('button', { type: 'button', onclick: () => send(s) }, s))] : []));
 }
 const syncHint = () => { const p = getPrefs(); $('how-hint').hidden = !(p.showHint && !p.hintDismissed); };
 
@@ -479,15 +614,12 @@ async function boot() {
   initShell();
   cfg = await api('/api/config');
 
-  const sandbox = cfg.paypalMode !== 'mock';
-  $('env-note-text').textContent = sandbox ? 'PayPal Sandbox: no real money' : 'Offline simulator: no real money';
-  $('env-note').firstChild.className = `dot ${sandbox && cfg.paypalConfigured ? 'ok' : 'warn'}`;
   const brand = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode];
-  $('agent-note').textContent = brand ? `${brand} + web search` : 'no AI key configured';
+  $('agent-note').textContent = brand ? `${brand} with web search` : 'no AI key configured';
 
   const notices = [];
-  if (cfg.paypalMode === 'sandbox' && !cfg.paypalConfigured) {
-    notices.push('PayPal sandbox credentials are missing: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (see README). The agent and policy engine still work, but orders cannot be created.');
+  if (cfg.paypalMode !== 'mock' && !cfg.paypalConfigured) {
+    notices.push('PayPal credentials are missing: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (see README). The assistant and policy engine still work, but orders cannot be created.');
   }
   if (!cfg.webSearch) {
     notices.push('Live product search is off: set TAVILY_API_KEY (free tier), SERPER_API_KEY or GEMINI_API_KEY. A search provider finds product pages; the server verifies each price itself.');
@@ -523,8 +655,21 @@ async function boot() {
 
   $('chat-form').addEventListener('submit', (e) => { e.preventDefault(); send(); });
   $('search-form').addEventListener('submit', runSearch);
+
   $('btn-edit').addEventListener('click', openEditor);
   $('edit-save').addEventListener('click', saveEditor);
+  $('form-edit').addEventListener('input', (e) => { if (editNeedsConfirm && e.target.id !== 'edit-ack') resetEditConfirm(); });
+  $('edit-ack').addEventListener('change', () => { $('edit-save').disabled = !$('edit-ack').checked; });
+
+  $('refund-ack').addEventListener('change', () => { if ($('refund-go').dataset.step === 'start') $('refund-go').disabled = !$('refund-ack').checked; });
+  $('refund-go').addEventListener('click', refundGo);
+  $('refund-cancel').addEventListener('click', () => $('dlg-refund').close());
+  $('dlg-refund').addEventListener('close', () => { cancelRefundRequest(); });
+
+  $('confirm-amount').addEventListener('input', () => { $('confirm-go').disabled = !confirming || parseUsd($('confirm-amount').value) !== confirming.amount_cents; });
+  $('form-confirm').addEventListener('submit', submitConfirm);
+  $('confirm-cancel').addEventListener('click', () => $('dlg-confirm').close());
+
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach((x) => { x.classList.toggle('active', x === t); x.setAttribute('aria-selected', x === t); });
     $('grid-purchases').hidden = t.dataset.tab !== 'purchases';

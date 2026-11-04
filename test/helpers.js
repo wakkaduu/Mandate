@@ -5,6 +5,7 @@ process.env.LOG_REQUESTS = '0';
 process.env.PAYPAL_MODE = 'mock';
 process.env.DATABASE_PATH = path.join(os.tmpdir(), `mandate-test-${process.pid}-${Date.now()}.db`);
 process.env.PAYPAL_WEBHOOK_ID = 'WH-TEST';
+process.env.REFUND_COOLING_OFF_SECONDS = '0'; // the cooling-off itself is tested explicitly in flow.test.js
 process.env.WEB_ALLOW_PRIVATE_HOSTS = '1'; // product-page stubs live on 127.0.0.1 (refused when NODE_ENV=production)
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.GEMINI_API_KEY;

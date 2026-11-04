@@ -1,188 +1,160 @@
 <!doctype html>
-<html lang="en" data-theme="system" data-scheme="light" data-accent="sky" data-density="comfortable" data-text="default" data-motion="full" data-sidebar="expanded">
+<html lang="en" data-theme="system" data-scheme="light" data-accent="sky" data-density="comfortable" data-text="default" data-motion="full">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Mandate - spend rails for AI shopping agents</title>
+  <meta name="csp-nonce" content="">
+  <title>Mandate</title>
   <meta name="description" content="Give an AI agent a spending mandate. Every purchase is policy-checked, then settled through PayPal with one-tap human approval.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2360cdff'/%3E%3Cpath d='M9 22V10l7 8 7-8v12' stroke='black' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='3' fill='%2360cdff'/%3E%3Cpath d='M9 22V10l7 8 7-8v12' stroke='black' stroke-width='3' fill='none' stroke-linecap='square' stroke-linejoin='miter'/%3E%3C/svg%3E">
   <script src="/theme-boot.js"></script>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
 
-  <div class="shell">
-    <!-- ============================================================ side panel -->
-    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
-      <div class="side-head">
-        <a class="brand" href="#/overview" title="Mandate">
-          <svg class="brand-mark" viewBox="0 0 32 32" width="34" height="34" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--accent)"/><path d="M9 22V10l7 8 7-8v12" stroke="var(--accent-ink)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span class="brand-text"><strong>Mandate</strong><small>Spend rails for AI agents</small></span>
-        </a>
-      </div>
-
-      <nav class="side-nav" aria-label="Sections">
-        <p class="nav-group">Workspace</p>
-        <a class="nav-item" data-route="overview" href="#/overview"><span class="nav-ico" data-icon="overview"></span><span class="nav-text">Overview</span><span class="nav-badge" id="nav-approvals" hidden>0</span></a>
-        <a class="nav-item" data-route="search" href="#/search"><span class="nav-ico" data-icon="search"></span><span class="nav-text">Search</span></a>
-        <a class="nav-item" data-route="ledger" href="#/ledger"><span class="nav-ico" data-icon="ledger"></span><span class="nav-text">Ledger</span></a>
-
-        <p class="nav-group">Learn</p>
-        <a class="nav-item" data-route="how" href="#/how"><span class="nav-ico" data-icon="how"></span><span class="nav-text">How it works</span></a>
-
-        <p class="nav-group">System</p>
-        <a class="nav-item" data-route="info" href="#/info"><span class="nav-ico" data-icon="info"></span><span class="nav-text">Information</span></a>
-        <a class="nav-item" data-route="settings" href="#/settings"><span class="nav-ico" data-icon="settings"></span><span class="nav-text">Settings</span></a>
+  <!-- ============================================================ masthead -->
+  <header class="masthead">
+    <div class="wrap masthead-inner">
+      <a class="brand" href="#/overview" aria-label="Mandate, home">
+        <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><rect width="32" height="32" rx="3" fill="var(--accent)"/><path d="M9 22V10l7 8 7-8v12" stroke="var(--accent-ink)" stroke-width="3" fill="none" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+        <span class="wordmark">Mandate</span>
+      </a>
+      <button class="menu-btn" id="btn-menu" type="button" aria-expanded="false" aria-controls="primary-nav">Menu</button>
+      <nav class="primary-nav" id="primary-nav" aria-label="Main">
+        <ul class="nav-main">
+          <li><a class="nav-item" data-route="overview" href="#/overview"><span class="nav-text">Account</span><span class="nav-badge" id="nav-approvals" hidden>0</span></a></li>
+          <li><a class="nav-item" data-route="search" href="#/search"><span class="nav-text">Search</span></a></li>
+          <li><a class="nav-item" data-route="ledger" href="#/ledger"><span class="nav-text">Ledger</span></a></li>
+        </ul>
+        <ul class="nav-meta">
+          <li><a class="nav-item" data-route="how" href="#/how"><span class="nav-text">How it works</span></a></li>
+          <li><a class="nav-item" data-route="info" href="#/info"><span class="nav-text">Information</span></a></li>
+          <li><a class="nav-item" data-route="settings" href="#/settings"><span class="nav-text">Settings</span></a></li>
+          <li><button class="icon-btn" id="btn-theme" type="button" aria-label="Switch theme"></button></li>
+        </ul>
       </nav>
-
-      <div class="side-foot">
-        <p class="env-note" id="env-note"><span class="dot ok" aria-hidden="true"></span><span class="nav-text" id="env-note-text">Sandbox: no real money</span></p>
-      </div>
-    </aside>
-    <div class="scrim" id="scrim" hidden></div>
-
-    <!-- ============================================================ main column -->
-    <div class="main-col">
-      <header class="topbar">
-        <button class="icon-btn only-mobile" id="btn-menu" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"></button>
-        <button class="icon-btn only-desktop" id="btn-collapse" type="button" aria-label="Collapse the side panel" aria-pressed="false"></button>
-        <div class="topbar-title">
-          <h1 id="page-title" tabindex="-1">Overview</h1>
-          <p id="page-sub" class="muted"></p>
-        </div>
-        <div class="topbar-actions">
-          <a class="pill-link" id="top-approvals" href="#/overview" hidden><span>0 waiting for approval</span></a>
-          <button class="icon-btn" id="btn-theme" type="button" aria-label="Switch theme"></button>
-        </div>
-      </header>
-
-      <div id="banner" class="banner" role="region" aria-label="Setup notice" hidden></div>
-
-      <main id="main" tabindex="-1">
-        <!-- ---------------------------------------------------------- Overview -->
-        <section class="page" id="page-overview" data-page="overview" hidden aria-labelledby="page-title">
-          <div class="hint-banner" id="how-hint" hidden>
-            <span class="hint-ico" data-icon="bulb"></span>
-            <span><strong>New here?</strong> See how Mandate keeps an AI agent's spending under your control.</span>
-            <a class="btn small" href="#/how">How it works</a>
-            <button class="icon-btn small" id="how-hint-dismiss" type="button" aria-label="Dismiss this hint" data-icon="close" data-size="16"></button>
-          </div>
-
-          <div class="grid">
-            <section class="card hero" aria-labelledby="h-mandate">
-              <div class="card-head">
-                <h2 id="h-mandate">Mandate</h2>
-                <button class="btn small ghost" id="btn-edit" type="button">Edit</button>
-              </div>
-              <div id="mandate"></div>
-            </section>
-
-            <section class="card chat" aria-labelledby="h-agent">
-              <div class="card-head"><h2 id="h-agent">Shopping agent</h2><span class="muted" id="agent-note"></span></div>
-              <div id="messages" class="messages" aria-live="polite"></div>
-              <div class="chips" id="chips"></div>
-              <form id="chat-form" class="chat-form" autocomplete="off">
-                <input id="chat-input" type="text" maxlength="600" placeholder="e.g. a desk lamp under $40 and a mechanical keyboard" aria-label="Message the shopping agent">
-                <button class="btn primary" id="chat-send" type="submit">Send</button>
-              </form>
-            </section>
-
-            <section class="card" aria-labelledby="h-approvals">
-              <div class="card-head"><h2 id="h-approvals">Approvals</h2><span class="muted" id="approvals-count"></span></div>
-              <div id="approvals" class="approvals"></div>
-            </section>
-          </div>
-        </section>
-
-        <!-- ---------------------------------------------------------- Search -->
-        <section class="page" id="page-search" data-page="search" hidden aria-labelledby="page-title">
-          <section class="card" id="search-card" aria-labelledby="h-search">
-            <div class="card-head">
-              <h2 id="h-search">Search the web yourself</h2>
-              <span class="muted">Works even when the AI is unavailable. Every request still goes through your mandate and PayPal approval.</span>
-            </div>
-            <form id="search-form" class="chat-form" autocomplete="off">
-              <input id="search-input" type="text" minlength="2" maxlength="120" placeholder="e.g. standing desk, noise cancelling headphones" aria-label="Search products on the web" required>
-              <input id="search-max" type="number" min="1" max="10000" step="1" placeholder="Max $" aria-label="Maximum price in US dollars">
-              <button class="btn primary" id="search-btn" type="submit">Search</button>
-            </form>
-            <div id="search-results" class="results" aria-live="polite"></div>
-          </section>
-          <div class="card empty-state" id="search-off" hidden>
-            <h2>Product search is not set up</h2>
-            <p class="muted">Add a search provider key on the server (Tavily, Serper or Gemini) and reload. See Information for what is configured.</p>
-            <a class="btn small" href="#/info">Open Information</a>
-          </div>
-        </section>
-
-        <!-- ---------------------------------------------------------- Ledger -->
-        <section class="page" id="page-ledger" data-page="ledger" hidden aria-labelledby="page-title">
-          <section class="card ledger" aria-labelledby="h-ledger">
-            <div class="card-head">
-              <h2 id="h-ledger">Ledger</h2>
-              <div class="tabs" role="tablist" aria-label="Ledger views">
-                <button role="tab" class="tab active" data-tab="purchases" aria-selected="true" type="button">Purchases</button>
-                <button role="tab" class="tab" data-tab="audit" aria-selected="false" type="button">Audit trail</button>
-              </div>
-            </div>
-            <div id="grid-purchases" class="grid-box" role="region" aria-label="Purchases ledger"></div>
-            <div id="grid-audit" class="grid-box" role="region" aria-label="Audit trail" hidden></div>
-          </section>
-        </section>
-
-        <!-- ---------------------------------------------------------- How it works (optional page) -->
-        <section class="page" id="page-how" data-page="how" hidden aria-labelledby="page-title">
-          <div class="how">
-            <ol class="timeline">
-              <li><span class="step-no">1</span><div><h2>The agent proposes</h2><p>You tell the agent what you need. It searches the live web and asks to buy specific products. It can only <em>request</em> a purchase: it cannot spend money and it cannot set a price.</p></div></li>
-              <li><span class="step-no">2</span><div><h2>Policy checks</h2><p>Before PayPal is ever called, a rule engine checks the request against your mandate. A failed check blocks it and shows exactly which rule said no.</p></div></li>
-              <li><span class="step-no">3</span><div><h2>You approve</h2><p>An allowed request becomes a PayPal order. You approve it yourself with the PayPal button under Approvals. Nothing is paid until you do.</p></div></li>
-              <li><span class="step-no">4</span><div><h2>The server captures and audits</h2><p>After you approve, the server captures the payment, re-checks the amount, and records every step in the Ledger and the audit trail.</p></div></li>
-            </ol>
-
-            <div class="how-grid">
-              <section class="card">
-                <h2>What the policy checks</h2>
-                <ul class="plain-list defs">
-                  <li><b>Active</b> The mandate has not expired.</li>
-                  <li><b>Category</b> The product's category is one you allowed.</li>
-                  <li><b>Not a duplicate</b> You are not already buying the same item.</li>
-                  <li><b>Under cap</b> The price is within the per-purchase cap.</li>
-                  <li><b>Within budget</b> Enough budget is left, counting orders still waiting for approval.</li>
-                  <li><b>Pace</b> The agent has not asked too often this hour.</li>
-                </ul>
-              </section>
-              <section class="card">
-                <h2>Where prices come from</h2>
-                <p>Search providers only suggest pages. The server opens each page itself and reads the price the retailer publishes. Anything it cannot verify is skipped, and a price older than six hours is refused as stale. The agent never supplies a price.</p>
-              </section>
-              <section class="card">
-                <h2>What the agent can and cannot do</h2>
-                <div class="can-grid">
-                  <div><h3>Can</h3><ul class="plain-list tick"><li>Search for products</li><li>Read your mandate</li><li>Request a purchase</li></ul></div>
-                  <div><h3>Cannot</h3><ul class="plain-list cross"><li>Spend or move money</li><li>Set or change a price</li><li>Approve its own orders</li></ul></div>
-                </div>
-              </section>
-            </div>
-            <p class="muted how-note">Payments run in the PayPal sandbox with test accounts, so no real money moves.</p>
-          </div>
-        </section>
-
-        <!-- ---------------------------------------------------------- Information -->
-        <section class="page" id="page-info" data-page="info" hidden aria-labelledby="page-title">
-          <div id="info-content"></div>
-        </section>
-
-        <!-- ---------------------------------------------------------- Settings -->
-        <section class="page" id="page-settings" data-page="settings" hidden aria-labelledby="page-title">
-          <div id="settings-content" class="settings"></div>
-        </section>
-      </main>
     </div>
-  </div>
+  </header>
 
+  <div id="banner" class="banner" role="region" aria-label="Setup notice" hidden></div>
+
+  <main id="main" class="wrap" tabindex="-1">
+    <div class="page-head">
+      <h1 id="page-title" tabindex="-1">Account</h1>
+      <p id="page-sub" class="muted"></p>
+    </div>
+
+    <!-- ---------------------------------------------------------- Account -->
+    <section class="page" id="page-overview" data-page="overview" hidden aria-labelledby="page-title">
+      <p class="hint-line" id="how-hint" hidden>
+        <span><strong>New here?</strong> Read how Mandate keeps an agent's spending under your control.</span>
+        <a href="#/how">How it works</a>
+        <button class="text-btn" id="how-hint-dismiss" type="button">Dismiss</button>
+      </p>
+
+      <section class="statement" aria-labelledby="h-mandate">
+        <div class="statement-top">
+          <h2 id="h-mandate" class="eyebrow">Mandate</h2>
+          <button class="btn small" id="btn-edit" type="button">Edit mandate</button>
+        </div>
+        <div id="mandate" class="statement-body"></div>
+      </section>
+
+      <div class="workbench">
+        <section class="work-main" aria-labelledby="h-approvals">
+          <header class="block-head"><h2 id="h-approvals">Awaiting your approval</h2><span class="count" id="approvals-count"></span></header>
+          <div id="approvals" class="req-list"></div>
+        </section>
+
+        <aside class="dock" aria-labelledby="h-agent">
+          <header class="block-head"><h2 id="h-agent">Assistant</h2><span class="muted" id="agent-note"></span></header>
+          <div id="messages" class="messages" aria-live="polite"></div>
+          <div class="suggest" id="chips"></div>
+          <form id="chat-form" class="chat-form" autocomplete="off">
+            <input id="chat-input" type="text" maxlength="600" placeholder="e.g. a desk lamp under $40" aria-label="Message the assistant">
+            <button class="btn primary" id="chat-send" type="submit">Send</button>
+          </form>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- Search -->
+    <section class="page" id="page-search" data-page="search" hidden aria-labelledby="page-title">
+      <section id="search-card" aria-label="Search the web">
+        <p class="lede">Search the web yourself. This works even when the assistant is unavailable, and every request still goes through your mandate and PayPal approval.</p>
+        <form id="search-form" class="search-form" autocomplete="off">
+          <label class="field grow"><span>What are you looking for?</span><input id="search-input" type="text" minlength="2" maxlength="120" placeholder="e.g. standing desk, noise cancelling headphones" required></label>
+          <label class="field"><span>Max price (USD)</span><input id="search-max" type="number" min="1" max="10000" step="1" placeholder="Any"></label>
+          <button class="btn primary" id="search-btn" type="submit">Search</button>
+        </form>
+        <div id="search-results" class="offer-list" aria-live="polite"></div>
+      </section>
+      <div class="notice" id="search-off" hidden>
+        <h2>Product search is not set up</h2>
+        <p>Add a search provider key on the server (Tavily, Serper or Gemini) and reload. Information shows what is configured.</p>
+        <a class="btn small" href="#/info">Open Information</a>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- Ledger -->
+    <section class="page" id="page-ledger" data-page="ledger" hidden aria-labelledby="page-title">
+      <div class="tabs" role="tablist" aria-label="Ledger views">
+        <button role="tab" class="tab active" data-tab="purchases" aria-selected="true" type="button">Purchases</button>
+        <button role="tab" class="tab" data-tab="audit" aria-selected="false" type="button">Audit trail</button>
+      </div>
+      <div id="grid-purchases" class="grid-box" role="region" aria-label="Purchases ledger"></div>
+      <div id="grid-audit" class="grid-box" role="region" aria-label="Audit trail" hidden></div>
+    </section>
+
+    <!-- ---------------------------------------------------------- How it works (optional page) -->
+    <section class="page" id="page-how" data-page="how" hidden aria-labelledby="page-title">
+      <ol class="steps-list">
+        <li><span class="step-no" aria-hidden="true">1</span><div><h2>The agent proposes</h2><p>You tell the assistant what you need. It searches the live web and asks to buy specific products. It can only <em>request</em> a purchase: it cannot spend money and it cannot set a price.</p></div></li>
+        <li><span class="step-no" aria-hidden="true">2</span><div><h2>Policy checks</h2><p>Before PayPal is ever called, a rule engine checks the request against your mandate. A failed check blocks it and shows exactly which rule said no.</p></div></li>
+        <li><span class="step-no" aria-hidden="true">3</span><div><h2>You approve</h2><p>An allowed request becomes a PayPal order. You approve it yourself with the PayPal button under Awaiting your approval. High-value orders ask you to type the amount first. Nothing is paid until you do.</p></div></li>
+        <li><span class="step-no" aria-hidden="true">4</span><div><h2>The server captures and audits</h2><p>After you approve, the server captures the payment, re-checks the amount, and records every step in the Ledger and the audit trail. Refunds take two steps and a short cooling-off delay.</p></div></li>
+      </ol>
+
+      <div class="how-cols">
+        <section>
+          <header class="block-head"><h2>What the policy checks</h2></header>
+          <ul class="plain-list defs">
+            <li><b>Active</b> The mandate has not expired.</li>
+            <li><b>Category</b> The product's category is one you allowed.</li>
+            <li><b>Not a duplicate</b> You are not already buying the same item.</li>
+            <li><b>Under cap</b> The price is within the per-purchase cap.</li>
+            <li><b>Within budget</b> Enough budget is left, counting orders still waiting for approval.</li>
+            <li><b>Pace</b> The assistant has not asked too often this hour.</li>
+          </ul>
+        </section>
+        <section>
+          <header class="block-head"><h2>Where prices come from</h2></header>
+          <p>Search providers only suggest pages. The server opens each page itself and reads the price the retailer publishes. Anything it cannot verify is skipped, and a price older than six hours is refused as stale. The assistant never supplies a price.</p>
+        </section>
+        <section>
+          <header class="block-head"><h2>What the assistant can and cannot do</h2></header>
+          <div class="can-grid">
+            <div><h3>Can</h3><ul class="plain-list tick"><li>Search for products</li><li>Read your mandate</li><li>Request a purchase</li></ul></div>
+            <div><h3>Cannot</h3><ul class="plain-list cross"><li>Spend or move money</li><li>Set or change a price</li><li>Approve its own orders</li><li>Raise its own limits</li></ul></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- Information -->
+    <section class="page" id="page-info" data-page="info" hidden aria-labelledby="page-title">
+      <div id="info-content"></div>
+    </section>
+
+    <!-- ---------------------------------------------------------- Settings -->
+    <section class="page" id="page-settings" data-page="settings" hidden aria-labelledby="page-title">
+      <div id="settings-content" class="settings"></div>
+    </section>
+  </main>
+
+  <!-- ============================================================ dialogs -->
   <dialog id="dlg-edit" aria-labelledby="edit-title">
     <form method="dialog" id="form-edit">
       <h3 id="edit-title">Edit mandate</h3>
@@ -192,10 +164,43 @@
       <label>Max purchase requests per hour <input name="pace" type="number" min="1" max="100" step="1" placeholder="Unlimited"></label>
       <label>Mandate expires (optional) <input name="expires" type="date"></label>
       <fieldset><legend>Allowed categories</legend><div id="edit-cats" class="cat-boxes"></div></fieldset>
+      <div class="notice warn" id="edit-confirm" hidden>
+        <p><strong>These changes give the assistant more spending power.</strong></p>
+        <ul id="edit-changes"></ul>
+        <label class="check-row"><input type="checkbox" id="edit-ack"> I understand and want to apply them</label>
+      </div>
       <p class="error" id="edit-error" hidden></p>
       <div class="dlg-actions">
-        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn" value="cancel" formnovalidate>Cancel</button>
         <button class="btn positive" id="edit-save" value="save">Save mandate</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-refund" aria-labelledby="refund-title">
+    <div class="dlg-body">
+      <h3 id="refund-title">Refund this purchase?</h3>
+      <dl class="facts" id="refund-facts"></dl>
+      <p class="notice warn">The full amount goes back to the PayPal account that paid. A refund cannot be undone, and the budget is released.</p>
+      <label class="check-row"><input type="checkbox" id="refund-ack"> I understand this refund cannot be undone</label>
+      <p class="countdown" id="refund-count" role="status" hidden></p>
+      <p class="error" id="refund-error" hidden></p>
+      <div class="dlg-actions">
+        <button class="btn" id="refund-cancel" type="button">Cancel</button>
+        <button class="btn danger-solid" id="refund-go" type="button" disabled>Start refund</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-confirm" aria-labelledby="confirm-title">
+    <form class="dlg-body" id="form-confirm">
+      <h3 id="confirm-title">Confirm a high-value payment</h3>
+      <dl class="facts" id="confirm-facts"></dl>
+      <label>Type the amount to confirm <input id="confirm-amount" inputmode="decimal" autocomplete="off" placeholder="$0.00"></label>
+      <p class="error" id="confirm-error" hidden></p>
+      <div class="dlg-actions">
+        <button class="btn" id="confirm-cancel" type="button">Cancel</button>
+        <button class="btn primary" id="confirm-go" type="submit" disabled>Confirm amount</button>
       </div>
     </form>
   </dialog>

@@ -1,0 +1,135 @@
+{
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "clips": {
+    "approve-4a": {
+      "durationSec": 11.167,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "ask-3a": {
+      "durationSec": 6.5,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "ask-3b": {
+      "durationSec": 93.467,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "ask-3c": {
+      "durationSec": 5,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "ask-3d": {
+      "durationSec": 13.8,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "audit-7a": {
+      "durationSec": 5,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "audit-7b": {
+      "durationSec": 5,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "audit-7c": {
+      "durationSec": 6,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "audit-7d": {
+      "durationSec": 3.5,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "close-8a": {
+      "durationSec": 8.133,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "hook-1b": {
+      "durationSec": 5.4,
+      "source": "auto",
+      "recordedAt": "2026-11-04T12:51:43.772Z"
+    },
+    "hook-1c": {
+      "durationSec": 5.167,
+      "source": "auto",
+      "recordedAt": "2026-11-04T12:51:43.772Z"
+    },
+    "mandate-2a": {
+      "durationSec": 3,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "mandate-2b": {
+      "durationSec": 8,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "mandate-2c": {
+      "durationSec": 6.133,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "mandate-2d": {
+      "durationSec": 3.467,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "suggest-6a": {
+      "durationSec": 5.5,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "suggest-6b": {
+      "durationSec": 31.067,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    },
+    "suggest-6c": {
+      "durationSec": 8.533,
+      "source": "auto",
+      "recordedAt": "2026-11-04T13:27:12.908Z"
+    }
+  },
+  "rings": {
+    "ask-3d": [
+      {
+        "at": 9.81,
+        "x": 583.5,
+        "y": 657,
+        "w": 111,
+        "h": 27
+      },
+      {
+        "at": 11.62,
+        "x": 94.5,
+        "y": 696,
+        "w": 1071,
+        "h": 28.5
+      }
+    ],
+    "mandate-2c": [
+      {
+        "at": 0.31,
+        "x": 609,
+        "y": 685.5,
+        "w": 702,
+        "h": 123
+      }
+    ]
+  },
+  "settle": {
+    "ask-3b": 90.38,
+    "ask-3d": 4.6,
+    "suggest-6b": 28.46
+  }
+}

@@ -1,0 +1,290 @@
+{
+  "_comment": "Shot list for the Mandate demo. Derived from docs/video/STORYBOARD.md (shots, windows, narration beats) and docs/video/storyboard.json (scene ids and captions; the JSON wins on any disagreement). windowSec is the storyboard's designed length for the shot; the cut uses max(windowSec, narration + padding). kind=title is pure Remotion (no recording); kind=clip plays public/clips/<clip>.mp4; recorder=auto is captured by scripts/capture.mjs, recorder=manual needs a human with a system screen recorder (PayPal's popup rejects automated browsers).",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "tagline": "Spending rules for AI agents. Settled by PayPal.",
+  "repoUrl": "github.com/wakkaduu/Mandate",
+  "scenePadSec": 0.4,
+  "scenes": [
+    {
+      "id": "hook",
+      "caption": "Spending rules for AI agents. Settled by PayPal.",
+      "captionFrom": "1c",
+      "shots": [
+        {
+          "id": "1a",
+          "windowSec": 4,
+          "kind": "title",
+          "narration": "AI agents are starting to shop for us."
+        },
+        {
+          "id": "1b",
+          "windowSec": 5.4,
+          "kind": "clip",
+          "clip": "hook-1b",
+          "recorder": "auto",
+          "narration": "Giving one a card number is reckless, and approving every click defeats the point.",
+          "push": true
+        },
+        {
+          "id": "1c",
+          "windowSec": 4,
+          "kind": "clip",
+          "clip": "hook-1c",
+          "recorder": "auto",
+          "narration": "This is Mandate: spending rules for AI agents, settled by PayPal."
+        }
+      ]
+    },
+    {
+      "id": "mandate",
+      "caption": "You set the budget first. The server enforces it.",
+      "shots": [
+        {
+          "id": "2a",
+          "windowSec": 3,
+          "kind": "clip",
+          "clip": "mandate-2a",
+          "recorder": "auto",
+          "narration": "I start by choosing my own numbers:"
+        },
+        {
+          "id": "2b",
+          "windowSec": 8,
+          "kind": "clip",
+          "clip": "mandate-2b",
+          "recorder": "auto",
+          "narration": "a three hundred dollar budget, no single purchase over one hundred and twenty, and only the categories I pick."
+        },
+        {
+          "id": "2c",
+          "windowSec": 6,
+          "kind": "clip",
+          "clip": "mandate-2c",
+          "recorder": "auto",
+          "narration": "Nothing is built in, and until I do this the assistant cannot search or buy.",
+          "ring": true
+        },
+        {
+          "id": "2d",
+          "windowSec": 3,
+          "kind": "clip",
+          "clip": "mandate-2d",
+          "recorder": "auto",
+          "narration": "The server enforces these rules, not a prompt."
+        }
+      ]
+    },
+    {
+      "id": "ask",
+      "caption": "The assistant requests. The server verifies prices. Rules decide.",
+      "shots": [
+        {
+          "id": "3a",
+          "windowSec": 6.5,
+          "kind": "clip",
+          "clip": "ask-3a",
+          "recorder": "auto",
+          "narration": "Now I ask the assistant for a vertical mouse and a desk mat."
+        },
+        {
+          "id": "3b",
+          "windowSec": 9,
+          "kind": "clip",
+          "clip": "ask-3b",
+          "recorder": "auto",
+          "narration": "It searches the live web, and the server opens each product page itself to read the real price."
+        },
+        {
+          "id": "3c",
+          "windowSec": 5,
+          "kind": "clip",
+          "clip": "ask-3c",
+          "recorder": "auto",
+          "narration": "Allowed requests wait for me."
+        },
+        {
+          "id": "3d",
+          "windowSec": 9.4,
+          "kind": "clip",
+          "clip": "ask-3d",
+          "recorder": "auto",
+          "narration": "Anything outside my rules is blocked before PayPal is ever called, with the exact rule that said no.",
+          "ring": true,
+          "captionTop": true
+        }
+      ]
+    },
+    {
+      "id": "approve",
+      "caption": "Type the amount. Approve with PayPal. Server captures.",
+      "shots": [
+        {
+          "id": "4a",
+          "windowSec": 11,
+          "kind": "clip",
+          "clip": "approve-4a",
+          "recorder": "auto",
+          "narration": "Payments above a set amount ask me to type the amount first."
+        },
+        {
+          "id": "4b",
+          "windowSec": 8,
+          "kind": "clip",
+          "clip": "approve-4b",
+          "recorder": "manual",
+          "narration": "Then PayPal's own button: I sign in and approve.",
+          "note": "PayPal's own window: sign in as the test buyer and approve"
+        },
+        {
+          "id": "4c",
+          "windowSec": 8.5,
+          "kind": "clip",
+          "clip": "approve-4c",
+          "recorder": "manual",
+          "narration": "Only now does the server capture the payment, check the amount, and update my budget.",
+          "note": "Back in the app: payment captured, toast, budget updates, card shows CAPTURED"
+        }
+      ]
+    },
+    {
+      "id": "refund",
+      "caption": "Refunds: acknowledge, wait, confirm.",
+      "shots": [
+        {
+          "id": "5a",
+          "windowSec": 5,
+          "kind": "clip",
+          "clip": "refund-5a",
+          "recorder": "manual",
+          "narration": "Refunds are deliberate.",
+          "note": "On the captured purchase, click Refund"
+        },
+        {
+          "id": "5b",
+          "windowSec": 6,
+          "kind": "clip",
+          "clip": "refund-5b",
+          "recorder": "manual",
+          "narration": "I acknowledge, start the request,",
+          "note": "Tick the acknowledgement, press Start refund"
+        },
+        {
+          "id": "5c",
+          "windowSec": 6,
+          "kind": "clip",
+          "clip": "refund-5c",
+          "recorder": "manual",
+          "narration": "and wait through a safety delay before I can confirm.",
+          "note": "The safety-delay countdown ticking down"
+        },
+        {
+          "id": "5d",
+          "windowSec": 5,
+          "kind": "clip",
+          "clip": "refund-5d",
+          "recorder": "manual",
+          "narration": "I can cancel at any time, and nothing moves until I do.",
+          "note": "Cursor near Cancel, then Confirm refund; the card shows REFUNDED"
+        }
+      ]
+    },
+    {
+      "id": "suggest",
+      "caption": "The assistant suggests. You decide.",
+      "shots": [
+        {
+          "id": "6a",
+          "windowSec": 5.5,
+          "kind": "clip",
+          "clip": "suggest-6a",
+          "recorder": "auto",
+          "narration": "The assistant can suggest new limits, but only I can apply them."
+        },
+        {
+          "id": "6b",
+          "windowSec": 6.5,
+          "kind": "clip",
+          "clip": "suggest-6b",
+          "recorder": "auto",
+          "narration": "It can never raise its own budget."
+        },
+        {
+          "id": "6c",
+          "windowSec": 8,
+          "kind": "clip",
+          "clip": "suggest-6c",
+          "recorder": "auto",
+          "narration": ""
+        }
+      ]
+    },
+    {
+      "id": "audit",
+      "caption": "Ledger, audit trail, CSV export.",
+      "shots": [
+        {
+          "id": "7a",
+          "windowSec": 5,
+          "kind": "clip",
+          "clip": "audit-7a",
+          "recorder": "auto",
+          "narration": "Every decision lands in the ledger and the audit trail,"
+        },
+        {
+          "id": "7b",
+          "windowSec": 5,
+          "kind": "clip",
+          "clip": "audit-7b",
+          "recorder": "auto",
+          "narration": ""
+        },
+        {
+          "id": "7c",
+          "windowSec": 6,
+          "kind": "clip",
+          "clip": "audit-7c",
+          "recorder": "auto",
+          "narration": "and finance can export it as a spreadsheet."
+        },
+        {
+          "id": "7d",
+          "windowSec": 3,
+          "kind": "clip",
+          "clip": "audit-7d",
+          "recorder": "auto",
+          "narration": ""
+        }
+      ]
+    },
+    {
+      "id": "close",
+      "caption": "The model proposes. Policy decides. You consent. PayPal settles.",
+      "captionHighlight": [
+        "proposes",
+        "decides",
+        "consent",
+        "settles"
+      ],
+      "shots": [
+        {
+          "id": "8a",
+          "windowSec": 8,
+          "kind": "clip",
+          "clip": "close-8a",
+          "recorder": "auto",
+          "narration": "The model proposes, the policy decides, I consent, PayPal settles, and the ledger remembers."
+        },
+        {
+          "id": "8b",
+          "windowSec": 8,
+          "kind": "endcard",
+          "holdSec": 5,
+          "narration": "Mandate: spending rules for AI agents."
+        }
+      ],
+      "captionUntil": "8a"
+    }
+  ]
+}

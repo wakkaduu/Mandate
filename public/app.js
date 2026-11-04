@@ -18,6 +18,7 @@ let cfg = {};
 let state = null;
 let sdkReady = null;
 let sandboxHintShown = false;
+let chatBusy = false; // pause background polling while the agent works so the progress bubble is not replaced
 let gridP; let gridA;
 const SUGGESTIONS = [
   'Set up my desk: a lamp under $40, a mechanical keyboard and a 4K monitor',
@@ -267,7 +268,7 @@ function ensureGrids() {
 function render(s) {
   state = s;
   renderMandate(s.mandate);
-  renderMessages(s.messages);
+  if (!chatBusy) renderMessages(s.messages); // keep the progress bubble while the agent works
   renderApprovals(s.purchases);
   ensureGrids();
   gridP?.setGridOption('rowData', s.purchases);
@@ -286,13 +287,21 @@ async function send(text) {
   input.value = '';
   $('chat-send').disabled = true;
   const box = $('messages');
-  box.append(h('div', { class: 'msg user' }, msg), h('div', { class: 'msg assistant thinking', id: 'thinking' }, 'Checking the catalog and your mandate...'));
+  const who = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode] ?? 'The agent';
+  const started = Date.now();
+  const thinking = h('div', { class: 'msg assistant thinking', id: 'thinking' }, `${who} is reading your request and checking your mandate...`);
+  const live = setInterval(refresh, 2000); // approvals appear as the agent proposes them
+  const tick = setInterval(() => { thinking.textContent = `${who} is reading your request and checking your mandate... ${Math.round((Date.now() - started) / 1000)}s`; }, 1000);
+  box.append(h('div', { class: 'msg user' }, msg), thinking);
   box.scrollTop = box.scrollHeight;
   try {
     await api('/api/chat', { method: 'POST', body: { message: msg } });
   } catch (e) {
     toast(e.message, true);
   } finally {
+    clearInterval(tick);
+    clearInterval(live);
+    chatBusy = false;
     $('chat-send').disabled = false;
     await refresh();
     input.focus();
@@ -369,13 +378,21 @@ async function boot() {
   pp.textContent = cfg.paypalMode === 'mock' ? 'PayPal: offline simulator' : 'PayPal: Sandbox';
   pp.classList.add(cfg.paypalMode === 'mock' || !cfg.paypalConfigured ? 'warn' : 'ok');
   const ag = $('pill-agent');
-  ag.textContent = cfg.agentMode === 'claude' ? `Agent: Claude (${cfg.model})` : 'Agent: built-in (offline)';
-  ag.classList.add(cfg.agentMode === 'claude' ? 'ok' : 'warn');
-  $('agent-note').textContent = cfg.agentMode === 'claude' ? 'AI-powered' : 'rule-based demo agent';
+  const brand = { gemini: 'Gemini', claude: 'Claude' }[cfg.agentMode];
+  ag.textContent = brand ? `AI: ${brand} (${cfg.model})` : 'Agent: rule-based (no AI key)';
+  ag.classList.add(brand ? 'ok' : 'warn');
+  $('agent-note').textContent = brand ? `${brand} language model` : 'rule-based (no AI key configured)';
+  const notices = [];
   if (cfg.paypalMode === 'sandbox' && !cfg.paypalConfigured) {
+    notices.push('PayPal sandbox credentials are missing: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (see README). The agent and policy engine still work, but orders cannot be created.');
+  }
+  if (cfg.persistent === false) {
+    notices.push('This deployment has no persistent database (set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN): your session and purchases can disappear between requests.');
+  }
+  if (notices.length) {
     const b = $('banner');
     b.hidden = false;
-    b.textContent = 'PayPal sandbox credentials are missing: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (see README) or run with PAYPAL_MODE=mock. The agent and policy engine still work, but orders cannot be created.';
+    b.textContent = notices.join(' ');
   }
 
   $('chips').replaceChildren(...SUGGESTIONS.map((s) => h('button', { class: 'chip', type: 'button', onclick: () => send(s) }, s)));
@@ -405,7 +422,7 @@ async function boot() {
 
   await refresh();
   // Picks up webhook-driven changes (e.g. capture completed server-side) without a manual reload.
-  setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+  setInterval(() => { if (!document.hidden && !chatBusy) refresh(); }, 5000);
 }
 
 boot().catch((e) => { console.error(e); toast('Failed to start the app.', true); });

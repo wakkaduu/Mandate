@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 // Verifies the Claude tool-use loop end to end against a local stub of the Messages API
 // (no network, no key needed). It checks request shape, tool execution through the policy gate,
 // and graceful fallback to the offline agent when the model API errors.
@@ -35,7 +37,8 @@ await new Promise((r) => stub.listen(0, '127.0.0.1', r));
 
 process.env.LOG_REQUESTS = '0';
 process.env.PAYPAL_MODE = 'mock';
-process.env.DATABASE_PATH = ':memory:';
+process.env.DATABASE_PATH = path.join(os.tmpdir(), `mandate-test-${process.pid}-${Date.now()}.db`);
+delete process.env.GEMINI_API_KEY;
 process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
 process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${stub.address().port}`;
 
@@ -82,7 +85,7 @@ test('model API failure falls back to the offline agent instead of erroring', as
   const r = await post(cookie, '/api/chat', { message: 'a pothos plant' });
   assert.equal(r.status, 200);
   assert.equal(r.body.mode, 'offline');
-  assert.match(r.body.reply, /built-in agent handled this/);
+  assert.match(r.body.reply, /rule-based agent handled this/);
   const s = await get(cookie, '/api/state');
   assert.equal(s.purchases[0].status, 'pending');
 });

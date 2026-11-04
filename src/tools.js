@@ -72,7 +72,7 @@ export async function runTool(sid, name, input = {}) {
       };
     }
     if (name === 'get_mandate') {
-      const m = getMandate(sid);
+      const m = await getMandate(sid);
       return {
         result: {
           budget_usd: m.budget_cents / 100, per_purchase_cap_usd: m.per_item_cap_cents / 100, allowed_categories: m.categories,

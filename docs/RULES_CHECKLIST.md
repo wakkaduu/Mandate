@@ -4,7 +4,7 @@ Source: *PayPal AI Hackathon Official Rules* (Devpost). Submission period: **Oct
 
 | # | Rule (section) | Status | Evidence / action |
 |---|---|---|---|
-| 1 | Build an app that integrates the PayPal developer platform **using the free sandbox**, with an AI tool/model; PayPal integration must be central (4, Project Requirements; Stage 1 pass/fail, 6) | DONE | Orders v2 create/capture/refund, JS SDK approval, webhooks, all sandbox-only (`src/config.js` refuses non-sandbox hosts). AI: Claude tool loop + MCP server |
+| 1 | Build an app that integrates the PayPal developer platform **using the free sandbox**, with an AI tool/model; PayPal integration must be central (4, Project Requirements; Stage 1 pass/fail, 6) | DONE | Orders v2 create/capture/refund, JS SDK approval, webhooks, all sandbox-only (`src/config.js` refuses non-sandbox hosts). AI: Gemini function-calling agent (Claude supported) + MCP server |
 | 2 | Project is new, or significantly updated during the period (4) | DONE | Created Nov 3, 2026 (inside the period); git history shows it |
 | 3 | Functional demo (verify a deployment with `npm run smoke -- <url>`): judges can run it from repo instructions **or** a hosted URL; mockups don't count (4, Submission Requirements) | DONE / TODO | README has complete run instructions incl. a no-credentials `PAYPAL_MODE=mock` path. TODO: also deploy the hosted URL on Render |
 | 4 | Public code repo (GitHub/Bitbucket/GitLab) with **all** source, assets and instructions (4) | DONE | https://github.com/wakkaduu/Mandate is public (verified Nov 3 via the GitHub API) |

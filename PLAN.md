@@ -34,11 +34,11 @@ The pitch: *agents are about to spend money on our behalf; PayPal is the trust l
 | Choice | Why |
 |---|---|
 | Node 22.13+/24, Express | One small server, no build step, deploys on any free host |
-| `node:sqlite` (built in) | No native modules -> zero install friction for judges; transactional budget reservations |
+| libSQL (`@libsql/client`): SQLite file locally/Render, Turso on Vercel | One async code path; transactional budget reservations; serverless-ready |
 | Vanilla JS front end | No bundler; fewer moving parts; fast to polish |
 | PayPal REST (Orders v2, Payments refund, Webhooks verify) via `fetch` | Exactly the documented endpoints, no SDK guesswork |
 | PayPal JS SDK Buttons | The human-approval moment; order id comes from our server |
-| Anthropic SDK (`claude-opus-5-5`, tool use) | Real agent loop; model is configurable via env |
+| Gemini API (function calling) with Claude as an alternative | Real LLM agent loop; provider/model configurable via env, with model fallback |
 | AG Grid Community (vendored from npm) | Ledger/audit grid with sort/filter; eligible for the AG Grid sponsor prize |
 | Render free tier (`render.yaml`) | Free host with a blueprint; eligible for the Render sponsor prize |
 

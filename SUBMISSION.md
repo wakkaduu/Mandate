@@ -4,9 +4,11 @@
 
 **Links:** Repo: https://github.com/wakkaduu/Mandate - Live demo: `<Render URL>` - Video: `<YouTube URL>` (see DEMO_SCRIPT.md)
 
-**Built with:** PayPal REST (Orders v2, Payments refund, Webhooks), PayPal JS SDK, Claude (Anthropic SDK, tool use), Model Context Protocol (MCP), AG Grid Community, Node.js, Express, SQLite, Render.
+**Built with:** PayPal REST (Orders v2, Payments refund, Webhooks), PayPal JS SDK, Google Gemini (function calling; Claude also supported), Model Context Protocol (MCP), AG Grid Community, Node.js, Express, SQLite, Render.
 
 **Prizes targeted:** Grand Prize, Best Use of PayPal + AI, Best Use of Agentic Commerce, Best Use of AG Grid, Best Use of Render.
+
+**AI tool:** Google Gemini via the Gemini API (function calling) reads the user's request and decides what to buy; PayPal's sandbox settles every approved purchase.
 
 ## Inspiration
 AI agents are about to buy things for us, and the scary part is not the shopping, it is the spending. Handing an agent a card number is a non-starter, and approving every single click defeats the point of an agent. We wanted the middle path: give the agent a *mandate* with hard limits, let it work freely inside them, and keep a human tap on the money. PayPal already has the pieces that make this trustworthy: buyer-approved orders, server-side capture, refunds and signed events.

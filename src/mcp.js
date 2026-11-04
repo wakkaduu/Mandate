@@ -42,7 +42,7 @@ async function handle(sid, msg) {
       const name = params?.name;
       if (!TOOLS.some((t) => t.name === name)) return rpcError(id, -32602, `Unknown tool: ${name}`);
       const { result, step } = await runTool(sid, name, params?.arguments ?? {});
-      audit(sid, null, 'mcp.tool_call', `External agent: ${step.text}`);
+      await audit(sid, null, 'mcp.tool_call', `External agent: ${step.text}`);
       return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result) }], isError: Boolean(result.error) } };
     }
     default:
@@ -56,7 +56,7 @@ export function createMcpRouter() {
 
   router.post('/', async (req, res) => {
     const token = /^Bearer (.+)$/i.exec(req.headers.authorization ?? '')?.[1];
-    const sid = token && sessionForMcpToken(token);
+    const sid = token && await sessionForMcpToken(token);
     if (!sid) {
       res.set('WWW-Authenticate', 'Bearer realm="mandate"');
       return res.status(401).json(rpcError(null, -32001, 'Missing or invalid bearer token. Generate one in Mandate (Connect an agent).'));

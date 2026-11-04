@@ -8,12 +8,21 @@ import { config } from './config.js';
 import { searchProducts, allProducts, getMandate, addMessage, listMessages } from './purchases.js';
 import { money } from './policy.js';
 import { TOOLS, runTool } from './tools.js';
+import { runGemini } from './llm/gemini.js';
 
 const MAX_TURNS = 8;
 let client;
 const anthropic = () => (client ??= new Anthropic({ apiKey: config.anthropic.apiKey }));
 
-export const agentMode = () => (config.anthropic.apiKey ? 'claude' : 'offline');
+/** Which brain answers: 'gemini' | 'claude' | 'offline' (rule-based, only when no AI key is configured or the model is down). */
+export function agentMode() {
+  const p = config.aiProvider;
+  if (p === 'offline') return 'offline';
+  if ((p === 'gemini' || p === 'auto') && config.gemini.apiKey) return 'gemini';
+  if ((p === 'claude' || p === 'anthropic' || p === 'auto') && config.anthropic.apiKey) return 'claude';
+  return 'offline';
+}
+export const agentModel = () => ({ gemini: config.gemini.models[0], claude: config.anthropic.model, offline: null }[agentMode()]);
 
 const SYSTEM = `You are the shopping agent inside Mandate. A human has given you a spending MANDATE (budget, per-purchase cap, allowed categories, pace limit, optional expiry) and you shop on their behalf.
 
@@ -25,16 +34,30 @@ How you work:
 - Always include a one-sentence rationale when proposing (why this item for this user).
 - Keep replies short and friendly: a few lines, plain text, no markdown tables. State what you proposed, what was blocked, and what the human needs to approve next.`;
 
+/** System prompt + the (small) catalog and live mandate, so the model usually needs one propose_purchase round instead of many searches. */
+async function buildSystem(sid) {
+  const m = await getMandate(sid);
+  const catalog = allProducts().map((p) => `${p.id} | ${p.name} | ${p.merchant} | ${p.category} | ${money(p.price_cents)}`).join('\n');
+  return `${SYSTEM}
+
+You already have the full catalog below, so you normally do NOT need search_catalog: go straight to propose_purchase with the product id (use search_catalog only if you are unsure which product fits). Do each lookup at most once, and make all the proposals you need in a single step.
+
+CATALOG (id | name | merchant | category | price)
+${catalog}
+
+CURRENT MANDATE: budget ${money(m.budget_cents)}, remaining ${money(m.remaining_cents)}, per-purchase cap ${money(m.per_item_cap_cents)}, allowed categories: ${m.categories.join(', ') || 'none'}${m.max_per_hour ? `, max ${m.max_per_hour} purchase requests per hour` : ''}${m.expired ? ', EXPIRED (nothing can be bought)' : ''}.
+Even when you can tell a request will be blocked, still call propose_purchase so the human sees the policy decision; then suggest an in-policy alternative.`;
+}
+
 // ------------------------------------------------------------------ Claude brain
-async function runClaude(sid, userText, steps) {
-  const history = listMessages(sid, 12).map((m) => ({ role: m.role, content: m.content }));
+async function runClaude(sid, userText, steps, history) {
   const messages = [...history, { role: 'user', content: userText }];
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await anthropic().messages.create({
       model: config.anthropic.model,
       max_tokens: 16000,
-      system: SYSTEM,
+      system: await buildSystem(sid),
       tools: TOOLS,
       output_config: { effort: 'low' },
       messages,
@@ -114,7 +137,7 @@ async function runOffline(sid, userText, steps) {
     } else {
       blocked++;
       let line = `• ${pick.name} - blocked: ${r.blocked?.reason ?? r.result.error}`;
-      const m = getMandate(sid);
+      const m = await getMandate(sid);
       const room = Math.min(m.per_item_cap_cents, m.remaining_cents);
       const head = w.query.split(' ').pop(); // head noun, e.g. "lamp" in "premium architect lamp"
       const alt = searchProducts({ query: head, max_price_cents: room })
@@ -136,18 +159,25 @@ export async function chat(sid, userText) {
   const steps = [];
   let reply;
   let mode = agentMode();
-  if (mode === 'claude') {
+  let model = agentModel();
+  if (mode !== 'offline') {
+    const history = (await listMessages(sid, 12)).map((m) => ({ role: m.role, content: m.content }));
     try {
-      reply = await runClaude(sid, text, steps);
+      if (mode === 'gemini') {
+        const out = await runGemini({ system: await buildSystem(sid), history, userText: text, sid, steps });
+        reply = out.text; model = out.model;
+      } else {
+        reply = await runClaude(sid, text, steps, history);
+      }
     } catch (e) {
-      console.error('[agent] Claude call failed, using offline agent:', e?.status ?? '', e?.message);
-      mode = 'offline';
-      reply = `${await runOffline(sid, text, steps)}\n\n(The AI model was unavailable, so the built-in agent handled this.)`;
+      console.error(`[agent] ${mode} call failed, using the built-in agent:`, e?.status ?? '', e?.message);
+      mode = 'offline'; model = null;
+      reply = `${await runOffline(sid, text, steps)}\n\n(The AI model was unavailable, so the built-in rule-based agent handled this.)`;
     }
   } else {
     reply = await runOffline(sid, text, steps);
   }
-  addMessage(sid, 'user', text);
-  addMessage(sid, 'assistant', reply, steps);
-  return { reply, mode, steps };
+  await addMessage(sid, 'user', text);
+  await addMessage(sid, 'assistant', reply, steps);
+  return { reply, mode, model, steps };
 }

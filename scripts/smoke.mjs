@@ -29,7 +29,8 @@ ok('config', Boolean(cfg.paypalMode), `paypal=${cfg.paypalMode} configured=${cfg
 if (cfg.paypalMode === 'sandbox') ok('PayPal sandbox credentials configured', cfg.paypalConfigured === true);
 
 const chat = await call('POST', '/api/chat', { message: 'a desk lamp under $40 and a 4K monitor' });
-ok('agent replies', chat.status === 200 && typeof chat.json?.reply === 'string', `mode=${chat.json?.mode}`);
+ok('agent replies', chat.status === 200 && typeof chat.json?.reply === 'string', `mode=${chat.json?.mode} model=${chat.json?.model}`);
+if (cfg.paypalMode === 'sandbox') ok('a real AI model answered (not the rule-based fallback)', chat.json?.mode && chat.json.mode !== 'offline', 'if this fails: missing/exhausted AI key or quota');
 
 const state = (await call('GET', '/api/state')).json ?? { purchases: [] };
 const lamp = state.purchases.find((p) => p.product_id === 'lamp-aurora');

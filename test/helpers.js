@@ -1,9 +1,12 @@
+import os from 'node:os';
+import path from 'node:path';
 // Test harness: boots the real app against the in-process PayPal simulator and an in-memory DB.
 process.env.LOG_REQUESTS = '0';
 process.env.PAYPAL_MODE = 'mock';
-process.env.DATABASE_PATH = ':memory:';
+process.env.DATABASE_PATH = path.join(os.tmpdir(), `mandate-test-${process.pid}-${Date.now()}.db`);
 process.env.PAYPAL_WEBHOOK_ID = 'WH-TEST';
 delete process.env.ANTHROPIC_API_KEY;
+delete process.env.GEMINI_API_KEY;
 
 const { start } = await import('../src/server.js');
 

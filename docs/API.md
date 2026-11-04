@@ -13,7 +13,7 @@ Stable `code` values: `BAD_INPUT`, `NOT_FOUND`, `BAD_STATE`, `RATE_LIMITED`, `BU
 | Method & path | Purpose | Notes |
 |---|---|---|
 | `GET /healthz` | Readiness (runs `SELECT 1`) | `{ok:true}` or `503` |
-| `GET /api/config` | Runtime flags for the UI | `paypalMode`, `paypalClientId` (public), `paypalConfigured`, `agentMode`, `model`, `webhooks` |
+| `GET /api/config` | Runtime flags for the UI | `paypalMode`, `paypalClientId` (public), `paypalConfigured`, `agentMode` (`gemini`/`claude`/`offline`), `model`, `webhooks`, `persistent` (false on serverless without a remote DB), `host` |
 | `GET /api/state` | Everything the UI renders | `mandate`, `purchases[]`, `audit[]` (newest first, max 300), `messages[]`, `categories[]` |
 | `GET /api/products` | Catalog | |
 | `PUT /api/mandate` | Edit mandate | Body: `name`, `budget_cents` (100..1,000,000), `per_item_cap_cents` (100..budget), `categories[]` (subset of catalog categories), `max_per_hour` (1..100 or `null` = unlimited), `expires_at` (future epoch ms within a year, or `null`). `400 BAD_INPUT` otherwise |

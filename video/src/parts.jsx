@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, OffthreadVideo, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { C, MONO, SANS, SERIF } from './theme.js';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' };
@@ -52,18 +52,20 @@ export const EndCard = ({ tagline, url }) => <TitleCard tagline={tagline} url={u
 // ------------------------------------------------------------------ lower-third caption
 // Ink on white, Sky Blue accent bar, serif. In 0.3 s (the sequence starts when it should appear), held to the end.
 // `highlights` maps a word to the frame (relative to the caption) it is spoken; that word lights up from then on.
-export const Caption = ({ text, highlights = {}, topRanges = [] }) => {
+export const Caption = ({ text, highlights = {}, topRanges = [], hideRanges = [] }) => {
   const frame = useCurrentFrame();
   const { fps, height } = useVideoConfig();
   const inn = spring({ frame, fps, config: { damping: 200 }, durationInFrames: 9 });
   const words = text.split(' ');
   // While a shot needs the bottom of the screen (a highlight ring there), the caption glides to the top and back.
   const CAPTION_H = 96, BOTTOM = 60, TOP = 28;
-  const up = topRanges.reduce((acc, [a, b]) => Math.max(acc, interpolate(frame, [a, a + 10, b - 10, b], [0, 1, 1, 0], clamp)), 0);
+  const up = topRanges.reduce((acc, [a, b]) => Math.max(acc, interpolate(frame, [a - 10, a, b - 10, b], [0, 1, 1, 0], clamp)), 0);
   const y = height - BOTTOM - CAPTION_H - up * (height - BOTTOM - CAPTION_H - TOP);
+  // While PayPal's own window is on screen the caption steps aside: nothing may cover PayPal's UI.
+  const hidden = hideRanges.reduce((acc, [a, b]) => Math.max(acc, interpolate(frame, [a - 6, a, b, b + 6], [0, 1, 1, 0], clamp)), 0);
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
-      <div style={{ position: 'absolute', left: 72, top: y, display: 'flex', alignItems: 'stretch', background: C.white, borderRadius: 14, boxShadow: '0 12px 44px rgba(16,22,38,.30), 0 1px 3px rgba(16,22,38,.18)', overflow: 'hidden', opacity: inn, transform: `translateY(${(1 - inn) * 18}px)` }}>
+      <div style={{ position: 'absolute', left: 72, top: y, display: 'flex', alignItems: 'stretch', background: C.white, borderRadius: 14, boxShadow: '0 12px 44px rgba(16,22,38,.30), 0 1px 3px rgba(16,22,38,.18)', overflow: 'hidden', opacity: inn * (1 - hidden), transform: `translateY(${(1 - inn) * 18}px)` }}>
         <div style={{ width: 12, background: C.sky }} />
         <div style={{ padding: '20px 36px 22px 28px', fontFamily: SERIF, fontWeight: 700, fontSize: 44, lineHeight: 1.2, letterSpacing: '-0.005em', color: C.ink, whiteSpace: 'nowrap' }}>
           {words.map((w, i) => {
@@ -129,3 +131,18 @@ export const MissingSlate = ({ shot, sceneId }) => (
     </div>
   </AbsoluteFill>
 );
+
+// ------------------------------------------------------------------ PayPal's popup window, shown at its native size
+// Never scaled, cropped, tinted or covered: only a fade in, a soft shadow outside its edge.
+export const PopupWindow = ({ src, rate, width, height }) => {
+  const frame = useCurrentFrame();
+  const { width: W, height: H } = useVideoConfig();
+  const inn = interpolate(frame, [0, 6], [0, 1], clamp);
+  return (
+    <AbsoluteFill style={{ pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', left: Math.round((W - width) / 2), top: Math.round((H - height) / 2), width, height, opacity: inn, boxShadow: '0 28px 90px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.25)', background: C.white }}>
+        <OffthreadVideo src={src} muted playbackRate={rate} style={{ width, height, display: 'block' }} />
+      </div>
+    </AbsoluteFill>
+  );
+};

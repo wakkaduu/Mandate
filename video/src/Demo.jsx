@@ -2,7 +2,7 @@ import React from 'react';
 import { AbsoluteFill, Audio, Freeze, OffthreadVideo, Sequence, staticFile, useCurrentFrame, useVideoConfig, interpolate } from 'remotion';
 import { clipFor, clipManifest, fps, narration, shots, timeline } from './data.js';
 import { LEAD } from './timing.js';
-import { Caption, EndCard, MissingSlate, RingLayer, SpeedTag, TitleCard } from './parts.jsx';
+import { Caption, EndCard, MissingSlate, PopupWindow, RingLayer, SpeedTag, TitleCard } from './parts.jsx';
 import { C } from './theme.js';
 
 const MAX_RATE = 3; // waiting time (the assistant thinking) is sped up to at most this; never slowed down
@@ -49,6 +49,13 @@ const ClipShot = ({ item, clip }) => {
     return { ...r, fromFrame: Math.round(t * fps) };
   });
 
+  // A second recording shown over this shot (PayPal's popup window), placed on the shot's timeline.
+  const ov = clipManifest.overlays?.[shot.clip];
+  const ovClip = ov ? clipManifest.clips?.[ov.clip] : null;
+  const first = plan.parts[0];
+  const ovFrom = ovClip ? Math.max(0, Math.round(((ov.atSec - first.startSec) / first.rate) * fps)) : 0;
+  const ovFrames = ovClip ? Math.max(1, Math.round((ovClip.durationSec / first.rate) * fps)) : 0;
+
   let at = 0;
   const layers = plan.parts.map((part, i) => {
     const frames = Math.max(1, Math.round(part.playSec * fps));
@@ -76,6 +83,11 @@ const ClipShot = ({ item, clip }) => {
         {layers}
         {mapped.length > 0 && <RingLayer rings={mapped} />}
       </AbsoluteFill>
+      {ovClip && (
+        <Sequence from={ovFrom} durationInFrames={ovFrames} name={`window ${ov.clip}`}>
+          <PopupWindow src={staticFile(`clips/${ov.clip}.mp4`)} rate={first.rate} width={852} height={1050} />
+        </Sequence>
+      )}
       {maxRate > 1.5 && <SpeedTag rate={maxRate} />}
     </AbsoluteFill>
   );
@@ -152,6 +164,7 @@ export const Demo = () => {
               text={scene.caption}
               highlights={Object.fromEntries(Object.entries(hl).map(([w, t]) => [w, (t - startSec) * fps]))}
               topRanges={items.filter((i) => i.shot.captionTop).map((i) => [(i.startSec - startSec) * fps, (i.startSec + i.durSec - startSec) * fps])}
+              hideRanges={items.filter((i) => i.shot.captionHide).map((i) => [(i.startSec - startSec) * fps, (i.startSec + i.durSec - startSec) * fps])}
             />
           </Sequence>
         );

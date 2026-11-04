@@ -10,8 +10,9 @@
 // Start the server first, with the recording settings (an isolated database keeps your real data out of it):
 //   PORT=3101 DATABASE_PATH=/tmp/mandate-video.db REFUND_COOLING_OFF_SECONDS=8 HIGH_VALUE_USD=30 npm start   (from the repo root)
 //
-// NOT recorded here: approve-4b, approve-4c and all of scene 5 (refund). PayPal's sign-in popup rejects automated
-// browsers and a refund needs a captured payment, so those need a person with a system screen recorder (see README.md).
+// The PayPal approval (scene "paypal") signs in to PayPal's SANDBOX with the test buyer from ../accounts (the first
+// "sb-...@personal.example.com" entry and the line after it) in a plain headless browser, and approves one sandbox
+// payment; scene "refund" then refunds it. Both need the scenes before them (ask, approve) in the same session.
 import fs from 'node:fs';
 import path from 'node:path';
 import { Recorder, launch, click, typeInto, moveTo, rectOf, sleep, videoRoot } from './lib/recorder.mjs';
@@ -30,7 +31,7 @@ const timeline = buildTimeline(shots, narration);
 const dur = Object.fromEntries(timeline.items.map((i) => [`${i.sceneId}-${i.shot.id}`, i.durSec]));
 
 const wantedScenes = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const AUTO = ['hook', 'mandate', 'ask', 'approve', 'suggest', 'audit', 'close'];
+const AUTO = ['hook', 'mandate', 'ask', 'approve', 'paypal', 'refund', 'suggest', 'audit', 'close'];
 const scenes = wantedScenes.length ? wantedScenes : AUTO;
 const resume = wantedScenes.length > 0 && fs.existsSync(statePath);
 
@@ -41,20 +42,32 @@ console.log(`App at ${BASE}: paypal=${cfg.paypalMode}, assistant=${cfg.agentMode
 if (cfg.paypalMode !== 'sandbox') console.warn('! The app is not in PayPal sandbox mode; the narration says PayPal, so record against the sandbox.');
 if (!cfg.aiEnabled) { console.error('The assistant is not configured (no AI key); the ask and suggest scenes need it.'); process.exit(1); }
 
-const { browser, context, page } = await launch({ baseURL: BASE, storage: resume ? statePath : undefined });
+// A resumed session keeps the app's cookie and settings but not PayPal's remembered-buyer data, so PayPal asks for a
+// sign-in again (a remembered email would otherwise be prefilled and the buyer skipped straight to the review).
+function sessionWithoutPayPal() {
+  const st = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  st.cookies = (st.cookies ?? []).filter((c) => !/paypal\.com$/.test(c.domain.replace(/^\./, '')));
+  st.origins = (st.origins ?? []).filter((o) => !/paypal\.com/.test(o.origin));
+  return st;
+}
+const { browser, context, page } = await launch({ baseURL: BASE, storage: resume ? sessionWithoutPayPal() : undefined });
 const rec = new Recorder(page, { outDir: clipsDir, width: 1920, height: 1080 });
+const metaPath = path.join(videoRoot, '.capture-meta.json'); // survives between partial runs (which request was confirmed)
+const meta = fs.existsSync(metaPath) && resume ? JSON.parse(fs.readFileSync(metaPath, 'utf8')) : {};
+const overlays = {};   // shot id -> { clip, atSec }: a second recording (PayPal's popup) shown over this shot
+const extraRecs = [];  // recorders of popup windows, encoded at the end
 const rings = {};
 const settle = {}; // shot id -> seconds into the clip when the long wait (assistant thinking) ended
 let current = null; // { id, startedAt }
 
 // ---------------------------------------------------------------- helpers
 /** Start recording a shot; the previous one ends here. Records until `run` finished and the shot is long enough. */
-async function shot(id, run = async () => {}) {
+async function shot(id, run = async () => {}, { hold = true } = {}) {
   const key = id;
   const t = rec.mark(key);
   current = { id: key, t };
   await run();
-  await rec.holdUntil(dur[key] ?? 4);
+  if (hold) await rec.holdUntil(dur[key] ?? 4);
 }
 /** Unrecorded setup between shots (reloads, navigation). */
 async function gap(run) { rec.mark('_gap'); current = null; await run(); }
@@ -93,6 +106,33 @@ async function scrollTo(selector, offset = 96) {
     if (el) window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - off), behavior: 'smooth' });
   }, [selector, offset]);
   await sleep(900);
+}
+
+async function scrollToLocator(loc, offset = 120) {
+  await loc.evaluate((el, off) => window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - off), behavior: 'smooth' }), offset);
+  await sleep(900);
+}
+
+/** Type into a field and check it took (a field that is still animating into place swallows keystrokes). */
+async function typeChecked(pg, r, loc, text, opts) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await loc.fill('');
+    await typeInto(pg, r, loc, text, opts);
+    if ((await loc.inputValue().catch(() => '')) === text) return;
+    await sleep(500);
+  }
+  throw new Error('a field did not take the typed text');
+}
+
+/** Cut out a dull wait on every recorder at once, so the main clip and the popup clip stay in step. */
+const pauseAll = (recs) => recs.forEach((r) => r.pause());
+const resumeAll = (recs) => Promise.all(recs.map((r) => r.resume()));
+
+function testBuyer() {
+  const lines = fs.readFileSync(path.join(videoRoot, '..', 'accounts'), 'utf8').split('\n').map((l) => l.trim());
+  const i = lines.findIndex((l) => l.includes('@'));
+  if (i < 0 || !lines[i + 1]) throw new Error('no test buyer found in ../accounts (an email line followed by its password line)');
+  return { email: lines[i], password: lines[i + 1] };
 }
 
 async function park(x = 1080, y = 620) { await moveTo(page, rec, x, y, 500); }
@@ -214,8 +254,18 @@ const SCENES = {
     await gap(async () => { await goHome(); await park(); });
     // 4a: the typed-amount step for a high-value request. Only the part before PayPal's own button is recorded here.
     await shot('approve-4a', async () => {
-      const card = page.locator('#approvals .req.pending', { has: page.getByRole('button', { name: 'Review and confirm' }) }).first();
+      // The cheapest request that asks for the typed amount: it is the one paid and then refunded in the next scenes
+      // (the sandbox seller account refunds small payments reliably; a $99.99 refund was refused by PayPal).
+      const needing = page.locator('#approvals .req.pending', { has: page.getByRole('button', { name: 'Review and confirm' }) });
+      await needing.first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+      let card = needing.first(), cheapest = Infinity;
+      for (let i = 0; i < await needing.count(); i++) {
+        const price = parseFloat((await needing.nth(i).locator('.req-amt').first().innerText()).replace(/[^0-9.]/g, ''));
+        if (price < cheapest) { cheapest = price; card = needing.nth(i); }
+      }
       await card.waitFor({ state: 'visible', timeout: 10000 }).catch(() => console.warn('! no pending request needs the typed amount; set HIGH_VALUE_USD lower than the item price'));
+      meta.payTitle = (await card.locator('.req-title').first().innerText().catch(() => '')).trim() || null;
+      fs.writeFileSync(metaPath, JSON.stringify(meta));
       await click(page, rec, card.getByRole('button', { name: 'Review and confirm' }), { ms: 800 });
       await page.waitForSelector('#dlg-confirm[open]');
       await sleep(900);
@@ -225,6 +275,109 @@ const SCENES = {
       await click(page, rec, '#confirm-go', { ms: 600 });
       await page.waitForSelector('#dlg-confirm:not([open])', { state: 'attached', timeout: 15000 });
       await page.locator('#approvals .req.pending .pp-slot iframe, #approvals .req.pending .pp-slot [data-funding-source]').first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => console.warn('! the PayPal button did not render in the headless browser'));
+      await sleep(1200);
+    });
+  },
+
+  async paypal() {
+    // PayPal remembers a buyer who signed in before: start signed out so the sign-in is what the viewer sees.
+    await gap(async () => { await context.clearCookies({ domain: /paypal\.com$/ }); await goHome(); await park(); });
+    const card = meta.payTitle
+      ? page.locator('#approvals .req.pending', { hasText: meta.payTitle }).first()
+      : page.locator('#approvals .req.pending:has(.pp-slot iframe)').first();
+    const buyer = testBuyer();
+    let popup = null, rec2 = null;
+
+    // 4b: PayPal's own button, then PayPal's own window (recorded separately, shown 1:1 over the app).
+    await shot('approve-4b', async () => {
+      await scrollToLocator(card, 140);
+      const btn = card.frameLocator('.pp-slot iframe').first().locator('div[role=link], .paypal-button, [data-funding-source=paypal]').first();
+      await btn.waitFor({ state: 'visible', timeout: 30000 });
+      const opened = context.waitForEvent('page', { timeout: 30000 });
+      await click(page, rec, btn, { ms: 550 });
+      popup = await opened;
+      await popup.setViewportSize({ width: 568, height: 700 }); // 852x1050 px at 1.5x: fits the frame at native size
+      rec2 = new Recorder(popup, { outDir: clipsDir, width: 852, height: 1050 });
+      rec2.cursor = { x: 70, y: 40 };
+      const both = [rec, rec2];
+      pauseAll([rec]);                 // the popup is blank while it loads: cut it
+      const emailBox = popup.locator('input[name=login_email], #email').first();
+      const complete = popup.getByRole('button', { name: /Complete Purchase|Pay Now|Continue/i }).first();
+      await Promise.race([emailBox.waitFor({ state: 'visible', timeout: 45000 }), complete.waitFor({ state: 'visible', timeout: 45000 })]);
+      const needsLogin = await emailBox.isVisible().catch(() => false);
+      await rec2.start();
+      rec2.mark('approve-4b-popup');
+      await rec.resume();
+      overlays['approve-4b'] = { clip: 'approve-4b-popup', atSec: Number((rec.now() - current.t).toFixed(2)) };
+      extraRecs.push(rec2);
+
+      if (needsLogin) {
+        await typeChecked(popup, rec2, emailBox, buyer.email, { delay: 26, ms: 450 });
+        await sleep(200);
+        const password = popup.locator('input[name=login_password], #password').first();
+        const login = popup.locator('#btnLogin, button:has-text("Log In")').first();
+        // PayPal serves two layouts: email, "Next", then password; or both fields on one page.
+        const next = popup.locator('#btnNext').first();
+        if (await next.isVisible().catch(() => false)) {
+          await click(popup, rec2, next, { ms: 400 });
+          pauseAll(both);
+          await login.waitFor({ state: 'visible', timeout: 45000 });
+          await password.waitFor({ state: 'visible', timeout: 45000 });
+          await sleep(1200);           // let the password step finish sliding in before typing
+          await resumeAll(both);
+        }
+        await typeChecked(popup, rec2, password, buyer.password, { delay: 26, ms: 400 });
+        await sleep(200);
+        await click(popup, rec2, login, { ms: 400 });
+        pauseAll(both);                // PayPal signs in: cut the wait
+        await complete.waitFor({ state: 'visible', timeout: 60000 });
+        await sleep(900);
+        await resumeAll(both);
+      }
+      await sleep(1000);               // the review page: who pays, how much
+      await click(popup, rec2, complete, { ms: 550 });
+      await popup.waitForEvent('close', { timeout: 60000 }).catch(() => {});
+      await rec2.stop(); // the popup's clip ends when its window closes
+    }, { hold: false });
+
+    // 4c: back in the app, the server captures the payment, checks the amount and updates the budget.
+    await shot('approve-4c', async () => {
+      const captured = page.locator('#approvals .req', { has: page.locator('.status.captured') }).first();
+      await captured.waitFor({ state: 'attached', timeout: 60000 });
+      await scrollToLocator(captured, 150);
+      await sleep(1800);
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+      await sleep(900);
+      await moveTo(page, rec, 900, 600, 600);
+    });
+  },
+
+  async refund() {
+    await gap(async () => { await goHome(); await park(); });
+    const captured = page.locator('#approvals .req', { has: page.locator('.status.captured') }).first();
+    await captured.waitFor({ state: 'attached', timeout: 20000 });
+    await shot('refund-5a', async () => {
+      await scrollToLocator(captured, 150);
+      await click(page, rec, captured.getByRole('button', { name: /^Refund/ }), { ms: 600 });
+      await page.waitForSelector('#dlg-refund[open]');
+    });
+    await shot('refund-5b', async () => {
+      await sleep(300);
+      await click(page, rec, '#refund-ack', { ms: 450 });
+      await sleep(200);
+      await click(page, rec, '#refund-go', { ms: 400 });
+    });
+    await shot('refund-5c', async () => {
+      // the safety delay counts down on screen (8 s on the recording setting; 30 s in production)
+      await page.waitForFunction(() => { const b = document.getElementById('refund-go'); return b && b.textContent.trim() === 'Confirm refund' && !b.disabled; }, null, { timeout: 40000 });
+    });
+    await shot('refund-5d', async () => {
+      const cancel = await rectOf(page, '#refund-cancel');
+      if (cancel) await moveTo(page, rec, cancel.x + cancel.w / 2, cancel.y + cancel.h / 2, 450);
+      await sleep(700);
+      await click(page, rec, '#refund-go', { ms: 420 });
+      await page.waitForSelector('#dlg-refund:not([open])', { state: 'attached', timeout: 30000 });
+      await page.locator('#approvals .req .status.refunded').first().waitFor({ state: 'visible', timeout: 30000 });
       await sleep(1200);
     });
   },
@@ -294,7 +447,7 @@ await rec.start();
 let failed = null;
 try {
   for (const name of scenes) {
-    if (!SCENES[name]) { console.warn(`(skipping "${name}": not an automatic scene. Recorded by hand: approve-4b, approve-4c, refund)`); continue; }
+    if (!SCENES[name]) { console.warn(`(skipping "${name}": not a scene. Scenes: ${AUTO.join(', ')})`); continue; }
     process.stdout.write(`scene ${name} ... `);
     const t = Date.now();
     await SCENES[name]();
@@ -309,16 +462,19 @@ try {
 await rec.stop();
 const lengths = await rec.encodeShots();
 rec.cleanup();
+for (const r of extraRecs) { await r.stop(); Object.assign(lengths, await r.encodeShots()); r.cleanup(); }
 await browser.close();
 
 const manifest = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : { clips: {}, rings: {} };
 manifest.settle ??= {};
+manifest.overlays ??= {};
 manifest.viewport = { width: 1920, height: 1080 };
 for (const [id, sec] of Object.entries(lengths)) {
   if (id.startsWith('_')) continue;
   manifest.clips[id] = { durationSec: sec, source: 'auto', recordedAt: new Date().toISOString() };
   if (rings[id]) manifest.rings[id] = rings[id]; else delete manifest.rings[id];
   if (settle[id] !== undefined) manifest.settle[id] = settle[id]; else delete manifest.settle[id];
+  if (overlays[id]) manifest.overlays[id] = overlays[id]; else delete manifest.overlays[id];
 }
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 for (const id of Object.keys(lengths)) { if (id.startsWith('_')) continue; console.log(`  ${id.padEnd(14)} ${lengths[id].toFixed(1).padStart(5)} s  (cut: ${(dur[id] ?? 0).toFixed(1)} s)`); }

@@ -5,54 +5,69 @@
   },
   "clips": {
     "approve-4a": {
-      "durationSec": 11.167,
+      "durationSec": 11.133,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.713Z"
+    },
+    "approve-4b-popup": {
+      "durationSec": 11.7,
+      "source": "auto",
+      "recordedAt": "2026-11-04T14:18:10.358Z"
+    },
+    "approve-4b": {
+      "durationSec": 14.567,
+      "source": "auto",
+      "recordedAt": "2026-11-04T14:18:10.358Z"
+    },
+    "approve-4c": {
+      "durationSec": 9.1,
+      "source": "auto",
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "ask-3a": {
       "durationSec": 6.5,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.713Z"
     },
     "ask-3b": {
-      "durationSec": 93.467,
+      "durationSec": 46.8,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.713Z"
     },
     "ask-3c": {
       "durationSec": 5,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.713Z"
     },
     "ask-3d": {
-      "durationSec": 13.8,
+      "durationSec": 23.833,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.713Z"
     },
     "audit-7a": {
-      "durationSec": 5,
+      "durationSec": 4.6,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "audit-7b": {
-      "durationSec": 5,
+      "durationSec": 4.5,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "audit-7c": {
       "durationSec": 6,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "audit-7d": {
-      "durationSec": 3.5,
+      "durationSec": 3.6,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "close-8a": {
-      "durationSec": 8.133,
+      "durationSec": 8.2,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "hook-1b": {
       "durationSec": 5.4,
@@ -65,54 +80,74 @@
       "recordedAt": "2026-11-04T12:51:43.772Z"
     },
     "mandate-2a": {
-      "durationSec": 3,
+      "durationSec": 3.033,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.712Z"
     },
     "mandate-2b": {
-      "durationSec": 8,
+      "durationSec": 8.033,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.713Z"
     },
     "mandate-2c": {
       "durationSec": 6.133,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.713Z"
     },
     "mandate-2d": {
-      "durationSec": 3.467,
+      "durationSec": 4.067,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:10:28.713Z"
+    },
+    "refund-5a": {
+      "durationSec": 4,
+      "source": "auto",
+      "recordedAt": "2026-11-04T14:18:10.358Z"
+    },
+    "refund-5b": {
+      "durationSec": 4,
+      "source": "auto",
+      "recordedAt": "2026-11-04T14:18:10.358Z"
+    },
+    "refund-5c": {
+      "durationSec": 7.2,
+      "source": "auto",
+      "recordedAt": "2026-11-04T14:18:10.358Z"
+    },
+    "refund-5d": {
+      "durationSec": 7.1,
+      "source": "auto",
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "suggest-6a": {
       "durationSec": 5.5,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "suggest-6b": {
-      "durationSec": 31.067,
+      "durationSec": 19.967,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     },
     "suggest-6c": {
-      "durationSec": 8.533,
+      "durationSec": 7.633,
       "source": "auto",
-      "recordedAt": "2026-11-04T13:27:12.908Z"
+      "recordedAt": "2026-11-04T14:18:10.358Z"
     }
   },
   "rings": {
     "ask-3d": [
       {
-        "at": 9.81,
+        "at": 20,
         "x": 583.5,
-        "y": 657,
+        "y": 879,
         "w": 111,
         "h": 27
       },
       {
-        "at": 11.62,
+        "at": 21.81,
         "x": 94.5,
-        "y": 696,
+        "y": 918,
         "w": 1071,
         "h": 28.5
       }
@@ -128,8 +163,14 @@
     ]
   },
   "settle": {
-    "ask-3b": 90.38,
-    "ask-3d": 4.6,
-    "suggest-6b": 28.46
+    "ask-3b": 44.28,
+    "ask-3d": 14.77,
+    "suggest-6b": 17.3
+  },
+  "overlays": {
+    "approve-4b": {
+      "clip": "approve-4b-popup",
+      "atSec": 3.24
+    }
   }
 }

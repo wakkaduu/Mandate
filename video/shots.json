@@ -1,5 +1,5 @@
 {
-  "_comment": "Shot list for the Mandate demo. Derived from docs/video/STORYBOARD.md (shots, windows, narration beats) and docs/video/storyboard.json (scene ids and captions; the JSON wins on any disagreement). windowSec is the storyboard's designed length for the shot; the cut uses max(windowSec, narration + padding). kind=title is pure Remotion (no recording); kind=clip plays public/clips/<clip>.mp4; recorder=auto is captured by scripts/capture.mjs, recorder=manual needs a human with a system screen recorder (PayPal's popup rejects automated browsers).",
+  "_comment": "Shot list for the Mandate demo. Derived from docs/video/STORYBOARD.md (shots, windows, narration beats) and docs/video/storyboard.json (scene ids and captions; the JSON wins on any disagreement). windowSec is the storyboard's designed length for the shot; the cut uses max(windowSec, narration + padding). kind=title is pure Remotion (no recording); kind=clip plays public/clips/<clip>.mp4; recorder=auto is captured by scripts/capture.mjs, The PayPal sandbox approval (approve-4b, approve-4c) and the refund (refund-5a..5d) are recorded by scripts/capture.mjs with the sandbox test buyer from ../accounts.",
   "fps": 30,
   "width": 1920,
   "height": 1080,
@@ -72,7 +72,8 @@
           "kind": "clip",
           "clip": "mandate-2d",
           "recorder": "auto",
-          "narration": "The server enforces these rules, not a prompt."
+          "narration": "The server enforces these rules, not a prompt.",
+          "captionTop": true
         }
       ]
     },
@@ -130,21 +131,21 @@
         },
         {
           "id": "4b",
-          "windowSec": 8,
+          "windowSec": 12.8,
           "kind": "clip",
           "clip": "approve-4b",
-          "recorder": "manual",
+          "recorder": "auto",
           "narration": "Then PayPal's own button: I sign in and approve.",
-          "note": "PayPal's own window: sign in as the test buyer and approve"
+          "captionHide": true
         },
         {
           "id": "4c",
           "windowSec": 8.5,
           "kind": "clip",
           "clip": "approve-4c",
-          "recorder": "manual",
+          "recorder": "auto",
           "narration": "Only now does the server capture the payment, check the amount, and update my budget.",
-          "note": "Back in the app: payment captured, toast, budget updates, card shows CAPTURED"
+          "captionTop": true
         }
       ]
     },
@@ -154,39 +155,36 @@
       "shots": [
         {
           "id": "5a",
-          "windowSec": 5,
+          "windowSec": 4,
           "kind": "clip",
           "clip": "refund-5a",
-          "recorder": "manual",
-          "narration": "Refunds are deliberate.",
-          "note": "On the captured purchase, click Refund"
+          "recorder": "auto",
+          "narration": "Refunds are deliberate."
         },
         {
           "id": "5b",
-          "windowSec": 6,
+          "windowSec": 4,
           "kind": "clip",
           "clip": "refund-5b",
-          "recorder": "manual",
-          "narration": "I acknowledge, start the request,",
-          "note": "Tick the acknowledgement, press Start refund"
+          "recorder": "auto",
+          "narration": "I acknowledge, start the request,"
         },
         {
           "id": "5c",
-          "windowSec": 6,
+          "windowSec": 7,
           "kind": "clip",
           "clip": "refund-5c",
-          "recorder": "manual",
-          "narration": "and wait through a safety delay before I can confirm.",
-          "note": "The safety-delay countdown ticking down"
+          "recorder": "auto",
+          "narration": "and wait through a safety delay before I can confirm."
         },
         {
           "id": "5d",
-          "windowSec": 5,
+          "windowSec": 6,
           "kind": "clip",
           "clip": "refund-5d",
-          "recorder": "manual",
+          "recorder": "auto",
           "narration": "I can cancel at any time, and nothing moves until I do.",
-          "note": "Cursor near Cancel, then Confirm refund; the card shows REFUNDED"
+          "captionTop": true
         }
       ]
     },
@@ -212,11 +210,12 @@
         },
         {
           "id": "6c",
-          "windowSec": 8,
+          "windowSec": 7,
           "kind": "clip",
           "clip": "suggest-6c",
           "recorder": "auto",
-          "narration": ""
+          "narration": "",
+          "captionTop": true
         }
       ]
     },
@@ -226,7 +225,7 @@
       "shots": [
         {
           "id": "7a",
-          "windowSec": 5,
+          "windowSec": 4.6,
           "kind": "clip",
           "clip": "audit-7a",
           "recorder": "auto",
@@ -234,7 +233,7 @@
         },
         {
           "id": "7b",
-          "windowSec": 5,
+          "windowSec": 4.5,
           "kind": "clip",
           "clip": "audit-7b",
           "recorder": "auto",

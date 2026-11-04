@@ -53,15 +53,18 @@ const CURSOR_SCRIPT = `(() => {
     let x = -100, y = -100;
     const place = () => { s.transform = 'translate(' + x + 'px,' + y + 'px)'; };
     const raise = () => { if (document.querySelector('dialog[open]')) { try { el.hidePopover(); el.showPopover(); } catch {} } };
+    // Explicit setters: pointer events over a cross-origin iframe (PayPal's button) never reach this document.
+    window.__cursorSet = (nx, ny) => { x = nx; y = ny; place(); raise(); };
+    window.__cursorRipple = () => ripple();
     addEventListener('mousemove', (e) => { x = e.clientX; y = e.clientY; place(); raise(); }, true);
-    addEventListener('mousedown', (e) => {
-      x = e.clientX; y = e.clientY; place(); raise();
+    addEventListener('mousedown', (e) => { x = e.clientX; y = e.clientY; place(); raise(); }, true); // the ripple is triggered by click() so it also shows over iframes
+    const ripple = () => {
       const r = document.createElement('div');
       r.style.cssText = 'position:absolute;left:-26px;top:-26px;width:52px;height:52px;border-radius:50%;border:3px solid #60cdff;background:rgba(96,205,255,.28);transform:scale(.3);opacity:1;transition:transform .45s cubic-bezier(.2,.7,.2,1),opacity .45s ease-out;';
       el.appendChild(r);
       requestAnimationFrame(() => requestAnimationFrame(() => { r.style.transform = 'scale(1.5)'; r.style.opacity = '0'; }));
       setTimeout(() => r.remove(), 600);
-    }, true);
+    };
   };
   if (document.documentElement) mount(); else addEventListener('DOMContentLoaded', mount);
 })();`;
@@ -88,18 +91,41 @@ export class Recorder {
     this.t0 = 0;
     this.tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mandate-rec-'));
     this.cursor = { x: 640, y: 360 }; // CSS pixels
+    this.offset = 0;        // seconds of paused time removed from the timeline
+    this.pausedAt = null;
   }
 
-  now() { return (performance.now() - this.t0) / 1000; }
+  /** Recording time in seconds, excluding paused stretches. */
+  now() {
+    const raw = (performance.now() - this.t0) / 1000;
+    return (this.pausedAt === null ? raw : this.pausedAt) - this.offset;
+  }
+
+  /** Stop the clock (frames are dropped) so a dull wait is cut out of the clip: the next frame jumps straight to the result. */
+  pause() { if (this.pausedAt === null) this.pausedAt = (performance.now() - this.t0) / 1000; }
+
+  async resume() {
+    if (this.pausedAt === null) return;
+    this.offset += (performance.now() - this.t0) / 1000 - this.pausedAt;
+    this.pausedAt = null;
+    try { // the page changed while the clock was stopped: seed the timeline with how it looks now
+      const f = path.join(this.tmp, `f${String(this.n++).padStart(6, '0')}.jpg`);
+      fs.writeFileSync(f, await this.page.screenshot({ type: 'jpeg', quality: this.quality }));
+      this.frames.push({ t: this.now(), file: f });
+    } catch { /* page gone */ }
+  }
 
   async start() {
     this.cdp = await this.page.context().newCDPSession(this.page);
     this.t0 = performance.now();
     this.n = 0;
+    this.offset = 0; this.pausedAt = null;
     this.cdp.on('Page.screencastFrame', async ({ data, sessionId }) => {
-      const file = path.join(this.tmp, `f${String(this.n++).padStart(6, '0')}.jpg`);
-      this.frames.push({ t: this.now(), file });
-      fs.writeFileSync(file, Buffer.from(data, 'base64'));
+      if (this.pausedAt === null) {
+        const file = path.join(this.tmp, `f${String(this.n++).padStart(6, '0')}.jpg`);
+        this.frames.push({ t: this.now(), file });
+        fs.writeFileSync(file, Buffer.from(data, 'base64'));
+      }
       try { await this.cdp.send('Page.screencastFrameAck', { sessionId }); } catch { /* closing */ }
     });
     // A still page sends no frames, so seed the timeline with a real screenshot.
@@ -121,12 +147,17 @@ export class Recorder {
   }
 
   async stop() {
+    if (this.stopped) return;
+    this.stopped = true;
+    if (this.pausedAt !== null) await this.resume();
     this.endT = this.now();
     try { await this.cdp.send('Page.stopScreencast'); } catch { /* ignore */ }
-    // Final settled frame so the last shot ends on the true end state.
-    const last = path.join(this.tmp, `f${String(this.n++).padStart(6, '0')}.jpg`);
-    fs.writeFileSync(last, await this.page.screenshot({ type: 'jpeg', quality: this.quality }));
-    this.frames.push({ t: this.endT, file: last });
+    // Final settled frame so the last shot ends on the true end state (a popup may already be closed: keep its last frame).
+    try {
+      const last = path.join(this.tmp, `f${String(this.n++).padStart(6, '0')}.jpg`);
+      fs.writeFileSync(last, await this.page.screenshot({ type: 'jpeg', quality: this.quality }));
+      this.frames.push({ t: this.endT, file: last });
+    } catch { /* page closed */ }
   }
 
   frameAt(t) {
@@ -179,7 +210,9 @@ export async function moveTo(page, rec, x, y, ms = 650) {
   const steps = Math.max(8, Math.round(dur / 16));
   for (let i = 1; i <= steps; i++) {
     const e = ease(i / steps);
-    await page.mouse.move(from.x + (x - from.x) * e, from.y + (y - from.y) * e);
+    const px = from.x + (x - from.x) * e, py = from.y + (y - from.y) * e;
+    await page.mouse.move(px, py);
+    await page.evaluate(([a, b]) => window.__cursorSet && window.__cursorSet(a, b), [px, py]).catch(() => {});
     await sleep(dur / steps);
   }
   rec.cursor = { x, y };
@@ -199,6 +232,7 @@ export async function click(page, rec, target, { ms = 520, settle = 150 } = {}) 
   await moveTo(page, rec, x, y, ms);
   await sleep(settle);
   await page.mouse.down();
+  await page.evaluate(() => window.__cursorRipple && window.__cursorRipple()).catch(() => {});
   await sleep(70);
   await page.mouse.up();
 }

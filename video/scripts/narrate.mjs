@@ -23,10 +23,13 @@ const dry = args.includes('--dry');
 const force = args.includes('--force');
 const only = args.filter((a) => !a.startsWith('--'));
 
-// Eric: "Smooth, Trustworthy" premade voice (available on every plan, including free). Override with ELEVENLABS_VOICE_ID.
-const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'cjVigY5qzO86Huf0OWal';
+// Sarah: a warm, reassuring, soft-spoken premade voice (available on every plan, including free).
+// Other soft options: Lily pFZP5JQG7iQjIQuC4Bku (velvety, British), River SAz9YHcvj6GT2YYXdXww (relaxed, neutral).
+// Override with ELEVENLABS_VOICE_ID.
+const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL';
 const MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
-const VOICE_SETTINGS = { stability: 0.5, similarityBoost: 0.8, style: 0, useSpeakerBoost: true, speed: 1 };
+// Soft read: steadier (higher stability), no style exaggeration, no speaker boost (it adds presence), slightly slower.
+const VOICE_SETTINGS = { stability: 0.6, similarityBoost: 0.75, style: 0, useSpeakerBoost: false, speed: 0.95 };
 const OUTPUT_FORMAT = 'mp3_44100_128';
 
 const shots = JSON.parse(fs.readFileSync(path.join(root, 'shots.json'), 'utf8'));

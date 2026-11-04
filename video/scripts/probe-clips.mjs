@@ -15,7 +15,7 @@ const ffprobe = path.join(root, 'node_modules', '@remotion', 'compositor-linux-x
 export function probe({ quiet = false } = {}) {
   fs.mkdirSync(clipsDir, { recursive: true });
   const old = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : { clips: {}, rings: {} };
-  const next = { viewport: old.viewport ?? { width: 1920, height: 1080 }, clips: {}, rings: {}, settle: {} };
+  const next = { viewport: old.viewport ?? { width: 1920, height: 1080 }, clips: {}, rings: {}, settle: {}, overlays: {} };
   for (const f of fs.readdirSync(clipsDir).filter((x) => x.endsWith('.mp4')).sort()) {
     const id = f.replace(/\.mp4$/, '');
     const r = spawnSync(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', path.join(clipsDir, f)], { encoding: 'utf8' });
@@ -29,6 +29,7 @@ export function probe({ quiet = false } = {}) {
     next.clips[id] = { durationSec: Number(sec.toFixed(3)), source: sameFile ? prev.source : 'manual', ...(sameFile ? { recordedAt: prev.recordedAt } : {}) };
     if (old.rings?.[id] && sameFile) next.rings[id] = old.rings[id];
     if (old.settle?.[id] !== undefined && sameFile) next.settle[id] = old.settle[id];
+    if (old.overlays?.[id] && sameFile) next.overlays[id] = old.overlays[id];
   }
   fs.writeFileSync(manifestPath, JSON.stringify(next, null, 2));
 

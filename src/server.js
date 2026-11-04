@@ -13,6 +13,7 @@ import { chat, agentMode, agentModel } from './agent.js';
 import { verifyWebhook } from './paypal.js';
 import { createMockPayPal } from './mock-paypal.js';
 import { createMcpRouter } from './mcp.js';
+import { MANDATE_DEFAULTS } from './categories.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const COOKIE = 'mandate_sid';
@@ -138,6 +139,7 @@ export function createApp() {
       agentPath: '/agent',
       refundCoolingSeconds: config.safety.refundCoolingSeconds,
       highValueCents: config.safety.highValueCents,
+      defaultPace: MANDATE_DEFAULTS.max_per_hour,
       version: appVersion,
       model: agentModel(),
       webhooks: Boolean(config.paypal.webhookId),
@@ -160,14 +162,14 @@ export function createApp() {
   app.post('/api/connect', wrap(async (req, res) => res.json({ url: mcpUrl(req), token: await svc.issueMcpToken(req.sid), connected: true })));
   app.delete('/api/connect', wrap(async (req, res) => { await svc.revokeMcpToken(req.sid); res.json({ connected: false }); }));
 
-  app.put('/api/mandate', wrap(async (req, res) => {
-    const b = req.body ?? {};
-    res.json({ mandate: await svc.updateMandate(req.sid, {
-      name: b.name, budget_cents: b.budget_cents, per_item_cap_cents: b.per_item_cap_cents, categories: b.categories,
-      expires_at: b.expires_at, max_per_hour: b.max_per_hour, max_per_day_cents: b.max_per_day_cents,
-      blocked_sellers: b.blocked_sellers, allowed_sellers: b.allowed_sellers, confirm_increase: b.confirm_increase === true,
-    }) });
-  }));
+  const mandateTerms = (b = {}) => ({
+    name: b.name, budget_cents: b.budget_cents, per_item_cap_cents: b.per_item_cap_cents, categories: b.categories,
+    expires_at: b.expires_at, max_per_hour: b.max_per_hour, max_per_day_cents: b.max_per_day_cents,
+    blocked_sellers: b.blocked_sellers, allowed_sellers: b.allowed_sellers,
+  });
+  // First-time setup: the owner chooses every figure (there are no built-in amounts). Nothing can be searched or bought before this.
+  app.post('/api/mandate/setup', wrap(async (req, res) => res.json({ mandate: await svc.setUpMandate(req.sid, mandateTerms(req.body)) })));
+  app.put('/api/mandate', wrap(async (req, res) => res.json({ mandate: await svc.updateMandate(req.sid, { ...mandateTerms(req.body), confirm_increase: req.body?.confirm_increase === true }) })));
 
   const chatLimit = limiter(12, 60_000);
   const globalChatLimit = limiter(400, 3600_000);
@@ -200,6 +202,7 @@ export function createApp() {
   // purchase. It goes through exactly the same offers, policy gate and PayPal approval as an agent's request.
   const searchLimit = limiter(10, 60_000);
   app.post('/api/search', wrap(async (req, res) => {
+    await svc.requireConfigured(req.sid);
     if (!searchLimit(req.sid) || !globalChatLimit('search')) throw new AppError(429, 'RATE_LIMITED', 'Too many searches - give it a moment.');
     const query = typeof req.body?.query === 'string' ? req.body.query.trim() : '';
     if (query.length < 2 || query.length > 120) throw new AppError(400, 'BAD_INPUT', 'Search text must be 2 to 120 characters.');

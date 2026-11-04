@@ -5,7 +5,7 @@
 // policy engine gates and which ends in a PayPal order that a human must approve.
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.js';
-import { getMandate, addMessage, listMessages } from './purchases.js';
+import { getMandate, requireConfigured, addMessage, listMessages } from './purchases.js';
 import { money } from './policy.js';
 import { TOOLS, runToolBatch } from './tools.js';
 import { runGemini } from './llm/gemini.js';
@@ -87,6 +87,7 @@ const AI_DOWN = 'The AI model is unavailable right now (quota or an outage on th
 
 // ------------------------------------------------------------------ Entry point
 export async function chat(sid, userText) {
+  await requireConfigured(sid); // 409 MANDATE_NOT_SET_UP: the assistant does nothing until the owner has chosen a budget
   const text = String(userText ?? '').trim().slice(0, 600);
   if (!text) return { reply: 'Say what you would like me to buy.', mode: agentMode(), steps: [] };
   const steps = [];

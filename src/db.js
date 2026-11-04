@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS mandates (
   max_per_day_cents INTEGER,           -- rolling 24h spending limit, NULL = none
   blocked_sellers TEXT NOT NULL DEFAULT '[]',  -- JSON array of domains the agent may never buy from
   allowed_sellers TEXT NOT NULL DEFAULT '[]',  -- JSON array; when non-empty, ONLY these domains
+  activated_at INTEGER,                -- epoch ms when the OWNER set the mandate up; NULL = not set up yet (the row then holds
+                                       -- 1-cent placeholders, hidden by getMandate, and nothing can be searched or bought)
   updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS purchases (
@@ -155,6 +157,10 @@ async function init() {
     await add('mandates', 'max_per_day_cents', 'INTEGER');
     await add('mandates', 'blocked_sellers', "TEXT NOT NULL DEFAULT '[]'");
     await add('mandates', 'allowed_sellers', "TEXT NOT NULL DEFAULT '[]'");
+    // v8: before this version every mandate was usable from the start, so mandates in a database upgraded from an
+    // earlier version stay active. (A fresh database, version 0, has no rows; later NULLs mean "not set up yet".)
+    await add('mandates', 'activated_at', 'INTEGER');
+    if (version > 0 && version < 8) await q.run('UPDATE mandates SET activated_at = updated_at WHERE activated_at IS NULL');
     await add('sessions', 'mcp_token_hash', 'TEXT');
     await add('messages', 'trace', 'TEXT');
     await add('purchases', 'product_url', 'TEXT');

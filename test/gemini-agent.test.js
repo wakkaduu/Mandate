@@ -74,11 +74,19 @@ const server = await start(0);
 const base = `http://127.0.0.1:${server.address().port}`;
 test.after(() => { server.close(); stub.close(); });
 
+/** A session whose owner has set a mandate up (the app has no built-in budget). */
+async function session() {
+  const cookie = (await fetch(`${base}/api/state`)).headers.get('set-cookie').split(';')[0];
+  const setup = await fetch(`${base}/api/mandate/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ name: 'Home office refresh', budget_cents: 30000, per_item_cap_cents: 12000, categories: ['office', 'electronics', 'home'] }) });
+  assert.equal(setup.status, 200);
+  return cookie;
+}
+
 test('live-web loop: search -> server-verified offers -> propose through the policy gate (model fallback, unchanged turns)', async () => {
   const cfg = await (await fetch(`${base}/api/config`)).json();
   assert.equal(cfg.agentMode, 'gemini');
   assert.equal(cfg.webSearch, true);
-  const cookie = (await fetch(`${base}/api/state`)).headers.get('set-cookie').split(';')[0];
+  const cookie = await session();
   const r = await fetch(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ message: 'a lamp and a 4K monitor' }) }).then((x) => x.json());
   assert.equal(r.mode, 'gemini');
   assert.equal(r.model, 'good-model');
@@ -123,7 +131,7 @@ test('when the AI is unavailable the app says so and does not pretend to shop', 
   const saved = config.gemini.baseUrl;
   config.gemini.baseUrl = 'http://127.0.0.1:1';                    // connection refused
   try {
-    const cookie = (await fetch(`${base}/api/state`)).headers.get('set-cookie').split(';')[0];
+    const cookie = await session();
     const r = await fetch(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ message: 'an airplane' }) }).then((x) => x.json());
     assert.equal(r.mode, 'offline');
     assert.match(r.reply, /unavailable/);

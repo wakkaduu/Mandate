@@ -1,6 +1,12 @@
 {
   "title": "Mandate: spending rules for AI agents",
-  "format": { "width": 1920, "height": 1080, "fps": 30, "maxSeconds": 175, "targetSeconds": 162 },
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "maxSeconds": 175,
+    "targetSeconds": 166
+  },
   "rules": [
     "Show only PayPal's own buttons and the app itself: no third-party logos, no copyrighted music.",
     "The UI shows no vendor names; pick generic products so retailer/product brand names are not the focus.",
@@ -8,60 +14,136 @@
   ],
   "scenes": [
     {
-      "id": "hook", "startSec": 0, "durationSec": 14,
+      "id": "hook",
+      "startSec": 0,
+      "durationSec": 14,
       "narration": "AI agents are starting to shop for us. Giving one a card number is reckless, and approving every click defeats the point. This is Mandate: spending rules for AI agents, settled by PayPal.",
       "caption": "Spending rules for AI agents. Settled by PayPal.",
       "capture": "Title card (Remotion) -> cut to the Account page, masthead and statement band visible.",
-      "ui": { "route": "#/overview" }
+      "ui": {
+        "route": "#/overview"
+      }
     },
     {
-      "id": "mandate", "startSec": 14, "durationSec": 16,
-      "narration": "I start with a mandate: three hundred dollars, no single purchase over one hundred and twenty, a daily limit, and only the categories and sellers I choose. These rules are enforced by the server, not by a prompt.",
-      "caption": "Budget, limits, categories, sellers. Enforced by the server.",
-      "capture": "Slow push-in on the Midnight statement band; hover the terms; open Edit mandate for 2 seconds to show daily limit and seller fields, then close.",
-      "ui": { "route": "#/overview", "actions": ["hover .statement", "click #btn-edit", "wait 2s", "press Escape"] }
+      "id": "mandate",
+      "startSec": 14,
+      "durationSec": 20,
+      "narration": "I start by choosing my own numbers: a three hundred dollar budget, no single purchase over one hundred and twenty, and only the categories I pick. Nothing is built in, and until I do this the assistant cannot search or buy. The server enforces these rules, not a prompt.",
+      "caption": "You set the budget first. The server enforces it.",
+      "capture": "Fresh profile: the welcome tour appears for 3 seconds (press Skip), then the Set up your mandate dialog. Type 300 and 120, tick office, electronics, home, show the plain-language summary line, press Activate mandate; the budget counts up in the Midnight band.",
+      "ui": {
+        "route": "#/overview",
+        "actions": [
+          "wait 3s",
+          "click #tour-skip",
+          "type [name=budget] 300",
+          "type [name=cap] 120",
+          "click #edit-cats input[value=office]",
+          "click #edit-cats input[value=electronics]",
+          "click #edit-cats input[value=home]",
+          "wait 2s",
+          "click #edit-save",
+          "wait 2s"
+        ]
+      }
     },
     {
-      "id": "ask", "startSec": 30, "durationSec": 28,
+      "id": "ask",
+      "startSec": 34,
+      "durationSec": 28,
       "narration": "Now I ask the assistant for a vertical mouse and a desk mat. It searches the live web, and the server opens each product page itself to read the real price. Allowed requests wait for me. Anything outside my rules is blocked before PayPal is ever called, with the exact rule that said no.",
       "caption": "The assistant requests. The server verifies prices. Rules decide.",
       "capture": "Type 'a vertical ergonomic mouse and a large desk mat' in the Assistant box; show the progress bar and thinking indicator; open 'Agent activity'; requests slide into Awaiting your approval. If possible include one blocked item (e.g. ask for a 4K monitor) to show the failed 'Under cap' check.",
-      "ui": { "route": "#/overview", "actions": ["type #chat-input", "click #chat-send", "wait for requests", "click details.trace summary"] }
+      "ui": {
+        "route": "#/overview",
+        "actions": [
+          "type #chat-input",
+          "click #chat-send",
+          "wait for requests",
+          "click details.trace summary"
+        ]
+      }
     },
     {
-      "id": "approve", "startSec": 58, "durationSec": 28,
+      "id": "approve",
+      "startSec": 62,
+      "durationSec": 28,
       "narration": "Payments above a set amount ask me to type the amount first. Then PayPal's own button: I sign in and approve. Only now does the server capture the payment, check the amount, and update my budget.",
       "caption": "Type the amount. Approve with PayPal. Server captures.",
       "capture": "Review and confirm -> type the amount -> PayPal button -> PayPal window (sign in as the test buyer, approve) -> back in the app: budget figure bumps, toast with check mark. Record the PayPal window with the system screen recorder, not the page recorder.",
-      "ui": { "route": "#/overview", "actions": ["click Review and confirm", "type amount", "click PayPal button", "sign in", "approve"] }
+      "ui": {
+        "route": "#/overview",
+        "actions": [
+          "click Review and confirm",
+          "type amount",
+          "click PayPal button",
+          "sign in",
+          "approve"
+        ]
+      }
     },
     {
-      "id": "refund", "startSec": 86, "durationSec": 22,
+      "id": "refund",
+      "startSec": 90,
+      "durationSec": 22,
       "narration": "Refunds are deliberate. I acknowledge, start the request, and wait through a safety delay before I can confirm. I can cancel at any time, and nothing moves until I do.",
       "caption": "Refunds: acknowledge, wait, confirm.",
       "capture": "Recent -> Refund... -> tick acknowledgement -> Start refund -> countdown -> Confirm refund (record with REFUND_COOLING_OFF_SECONDS=8).",
-      "ui": { "route": "#/overview", "actions": ["click Refund", "click #refund-ack", "click #refund-go", "wait for countdown", "click #refund-go"] }
+      "ui": {
+        "route": "#/overview",
+        "actions": [
+          "click Refund",
+          "click #refund-ack",
+          "click #refund-go",
+          "wait for countdown",
+          "click #refund-go"
+        ]
+      }
     },
     {
-      "id": "suggest", "startSec": 108, "durationSec": 18,
+      "id": "suggest",
+      "startSec": 112,
+      "durationSec": 18,
       "narration": "The assistant can suggest new limits, but only I can apply them. It can never raise its own budget.",
       "caption": "The assistant suggests. You decide.",
       "capture": "Ask 'raise my budget to five hundred dollars' -> suggestion card appears -> Review and apply -> tick acknowledgement -> Apply; statement figure counts up.",
-      "ui": { "route": "#/overview", "actions": ["type #chat-input", "click #chat-send", "click Review and apply", "click #proposal-ack", "click #proposal-go"] }
+      "ui": {
+        "route": "#/overview",
+        "actions": [
+          "type #chat-input",
+          "click #chat-send",
+          "click Review and apply",
+          "click #proposal-ack",
+          "click #proposal-go"
+        ]
+      }
     },
     {
-      "id": "audit", "startSec": 126, "durationSec": 20,
+      "id": "audit",
+      "startSec": 130,
+      "durationSec": 20,
       "narration": "Every decision lands in the ledger and the audit trail, and finance can export it as a spreadsheet.",
       "caption": "Ledger, audit trail, CSV export.",
       "capture": "Ledger page: Purchases, then Audit trail; click Export (the download toast/file). 3 seconds on the Information page.",
-      "ui": { "route": "#/ledger", "actions": ["click .tab[data-tab=audit]", "click #export-audit", "goto #/info"] }
+      "ui": {
+        "route": "#/ledger",
+        "actions": [
+          "click .tab[data-tab=audit]",
+          "click #export-audit",
+          "goto #/info"
+        ]
+      }
     },
     {
-      "id": "close", "startSec": 146, "durationSec": 16,
+      "id": "close",
+      "startSec": 150,
+      "durationSec": 16,
       "narration": "The model proposes, the policy decides, I consent, PayPal settles, and the ledger remembers. Mandate: spending rules for AI agents.",
       "caption": "The model proposes. Policy decides. You consent. PayPal settles.",
       "capture": "Account page; end card (Remotion) with the project name and repository link.",
-      "ui": { "route": "#/overview" }
+      "ui": {
+        "route": "#/overview"
+      }
     }
   ]
 }

@@ -9,7 +9,7 @@ const pub = path.join(import.meta.dirname, '..', 'public');
 const read = (f) => fs.readFileSync(path.join(pub, f), 'utf8');
 const html = read('index.html');
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
-const scripts = ['app.js', 'ui/shell.js', 'ui/pages.js', 'ui/prefs.js', 'ui/dom.js', 'ui/icons.js', 'theme-boot.js'];
+const scripts = ['app.js', 'ui/shell.js', 'ui/pages.js', 'ui/prefs.js', 'ui/dom.js', 'ui/icons.js', 'ui/tour.js', 'theme-boot.js'];
 
 test('every $("id") lookup in the UI scripts points at an element that exists in index.html', () => {
   const missing = [];
@@ -30,7 +30,7 @@ test('side panel links, pages and routes line up', () => {
 
 test('no visible "sandbox" wording in the working UI; the one honest disclosure lives on the Information page', () => {
   const visible = (f) => read(f).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  for (const f of ['index.html', 'app.js', 'ui/shell.js', 'ui/dom.js', 'ui/icons.js', 'ui/prefs.js', 'styles.css', 'theme-boot.js']) assert.ok(!/sandbox/i.test(visible(f)), `${f} should not mention the sandbox`);
+  for (const f of ['index.html', 'app.js', 'ui/shell.js', 'ui/dom.js', 'ui/icons.js', 'ui/prefs.js', 'ui/tour.js', 'styles.css', 'theme-boot.js']) assert.ok(!/sandbox/i.test(visible(f)), `${f} should not mention the sandbox`);
   assert.match(visible('ui/pages.js'), /Sandbox \(test mode\)/, 'Information states the payment environment truthfully');
   assert.equal((visible('ui/pages.js').match(/sandbox/gi) ?? []).length, 1);
 });
@@ -61,7 +61,7 @@ test('preferences: every option list has a default and the boot script exposes t
 test('the UI never shows third-party vendor names (only PayPal); product titles and retailers are data, not chrome', () => {
   const visible = (f) => read(f).replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<!--[\s\S]*?-->/g, '').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const vendors = /gemini|claude|anthropic|openai|tavily|serper|google|turso|vercel|render\.com|\bmcp\b|model context protocol/i;
-  for (const f of ['index.html', 'app.js', 'ui/shell.js', 'ui/pages.js', 'ui/dom.js', 'ui/prefs.js', 'ui/motion.js', 'ui/icons.js', 'theme-boot.js']) assert.ok(!vendors.test(visible(f)), `${f} mentions a vendor`);
+  for (const f of ['index.html', 'app.js', 'ui/shell.js', 'ui/pages.js', 'ui/dom.js', 'ui/prefs.js', 'ui/motion.js', 'ui/icons.js', 'ui/tour.js', 'theme-boot.js']) assert.ok(!vendors.test(visible(f)), `${f} mentions a vendor`);
 });
 
 test('motion is opt-in per setting: every JS effect is gated by motionOn(); CSS honours reduced and off', () => {
@@ -74,4 +74,43 @@ test('motion is opt-in per setting: every JS effect is gated by motionOn(); CSS 
   assert.ok(!/\.pp-slot[^{]*\{[^}]*(filter|transform|zoom)/.test(css), 'no effects on the PayPal slot');
   assert.match(css, /:is\(\.statement, \.req:not\(\.pending\)/, 'spotlight skips rows that hold PayPal buttons');
   assert.match(css, /\.req:not\(\.pending\):hover/, 'no lift on rows that hold PayPal buttons');
+});
+
+test('the owner chooses every amount: the setup form ships with no pre-filled money and no built-in budget', () => {
+  const form = html.slice(html.indexOf('id="form-edit"'), html.indexOf('id="dlg-proposal"'));
+  for (const name of ['budget', 'cap', 'daily']) assert.ok(!new RegExp(`name="${name}"[^>]*\\svalue=`).test(form), `${name} has no default value`);
+  assert.match(form, /name="budget"[^>]*required/);
+  assert.match(form, /name="cap"[^>]*required/);
+  assert.ok(!/\$300\b|\b30000\b|12000/.test(read('app.js') + html + read('ui/tour.js')), 'no built-in $300 budget or $120 cap');
+  const app = read('app.js');
+  assert.match(app, /\/api\/mandate\/setup/, 'setup posts to its own endpoint');
+  assert.match(app, /Choose at least one category/);
+  assert.match(html, /id="setup-bar"/);
+  assert.match(html, /id="search-locked"/);
+});
+
+test('welcome tour: a modal dialog, remembered in this browser only, replayable from Settings and How it works', () => {
+  assert.match(html, /<dialog id="dlg-tour"[^>]*aria-labelledby="tour-title"/);
+  for (const id of ['tour-art', 'tour-body', 'tour-step', 'tour-title', 'tour-text', 'tour-points', 'tour-dots', 'tour-skip', 'tour-back', 'tour-next']) assert.ok(ids.has(id), id);
+  const tour = read('ui/tour.js');
+  assert.match(tour, /const KEY = 'mandate\.tour\.v1'/, 'its own storage key, separate from preferences');
+  assert.match(tour, /localStorage\.setItem\(KEY/);
+  assert.match(tour, /try \{[^}]*localStorage\.getItem\(KEY\)[^}]*\} catch/, 'blocked storage does not break the app');
+  assert.ok(!/localStorage/.test(read('theme-boot.js').replace(/mandate\.prefs/g, '')) || !/mandate\.tour/.test(read('theme-boot.js')), 'the tour flag is not part of resettable preferences');
+  assert.ok(!/mandate\.tour/.test(read('ui/prefs.js') + read('ui/pages.js')), 'Reset preferences cannot clear the tour flag');
+  const pages = read('ui/pages.js');
+  assert.match(pages, /section\('Help'/);
+  assert.match(pages, /Replay tour/);
+  assert.match(pages, /startTour\(\)/);
+  assert.match(html, /id="how-tour"/);
+  const app = read('app.js');
+  assert.match(app, /if \(!tourSeen\(\)\) openTour\(\{ first: true \}\)/, 'automatic only when this device has not seen it');
+});
+
+test('the tour copy has no vendor names and every step has a title and text', () => {
+  const tour = read('ui/tour.js');
+  const titles = [...tour.matchAll(/title: '([^']+)'/g)].map((m) => m[1]);
+  assert.equal(titles.length, 6);
+  assert.ok(titles[0].startsWith('Welcome'));
+  assert.ok(titles[1].includes('budget first'), 'the second step tells people they set the budget first');
 });

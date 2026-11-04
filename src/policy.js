@@ -10,13 +10,15 @@ export const MAX_QTY = 5;
 export const COMMITTED_STATUSES = ['reserving', 'pending', 'capturing', 'captured'];
 
 /**
- * @param {{budget_cents:number, per_item_cap_cents:number, categories:string[], expires_at?:number|null, max_per_hour?:number|null, max_per_day_cents?:number|null, blocked_sellers?:string[], allowed_sellers?:string[]}} mandate
+ * @param {{configured?:boolean, budget_cents:number, per_item_cap_cents:number, categories:string[], expires_at?:number|null, max_per_hour?:number|null, max_per_day_cents?:number|null, blocked_sellers?:string[], allowed_sellers?:string[]}} mandate
  * @param {{id:string, category:string, price_cents:number, name:string, url?:string}|undefined} product
  * @param {number} qty
  * @param {{committed_cents:number, day_committed_cents?:number, open_same_product:boolean, now?:number, recent_count?:number, stale?:boolean}} ctx
  * @returns {{ok:true, amount_cents:number} | {ok:false, code:string, reason:string, amount_cents?:number}}
  */
 export function evaluate(mandate, product, qty, ctx) {
+  // No amount exists until the owner sets one: a mandate that was never set up authorises nothing.
+  if (mandate.configured === false) return { ok: false, code: 'MANDATE_NOT_SET_UP', reason: 'The owner has not set a budget yet, so nothing can be bought.' };
   if (!product) return { ok: false, code: 'UNKNOWN_PRODUCT', reason: 'That offer does not exist. Search for the product first and use the offer_id from the results.' };
   if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) {
     return { ok: false, code: 'BAD_QUANTITY', reason: `Quantity must be a whole number between 1 and ${MAX_QTY}.` };

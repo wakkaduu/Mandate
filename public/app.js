@@ -1,16 +1,19 @@
 // Mandate front-end. Plain ES modules, no build step. All dynamic text goes through text nodes (no HTML strings).
 // Layout: masthead + pages (ui/shell.js), preferences (ui/prefs.js), Settings/Information pages (ui/pages.js).
 import { $, h, usd, safeHref, tweenText, motionOn } from './ui/dom.js';
-import { initShell, onRoute, setPendingApprovals, navigate } from './ui/shell.js';
+import { initShell, onRoute, setPendingApprovals, navigate, currentRoute } from './ui/shell.js';
 import { getPrefs, setPref, onPrefs } from './ui/prefs.js';
 import { icon } from './ui/icons.js';
 import { renderSettings, renderInfo } from './ui/pages.js';
 import { initMotion, progress, celebrate, flashRow } from './ui/motion.js';
+import { initTour, openTour, tourSeen } from './ui/tour.js';
 
 let cfg = {};
 let state = null;
 let sdkReady = null;
 let chatBusy = false; // pause background polling while the assistant works so the progress bubble is not replaced
+let searching = false;
+let lockSig = null;     // last applied "mandate is set up" state, so the locked/unlocked UI only re-renders when it changes
 let gridP; let gridA;
 
 const tick = () => { const s = icon('check', { size: 18, cls: 'tick' }); s.setAttribute('stroke-width', '2.4'); return s; };
@@ -27,6 +30,7 @@ const sourceLine = (p) => h('p', { class: 'req-meta' },
   safeHref(p.product_url) ? [' · ', h('a', { href: safeHref(p.product_url), target: '_blank', rel: 'noopener noreferrer' }, 'product page')] : null,
   h('span', { class: `tag ${p.price_verified ? 'ok' : 'warn'}`, title: p.price_verified ? 'The server read this price from the retailer\'s own page' : 'Price comes from the search result and was not confirmed on the retailer page' }, p.price_verified ? 'price verified' : 'price unverified'));
 
+let onNeedsSetup = () => {};
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(path, {
     method,
@@ -38,6 +42,7 @@ async function api(path, { method = 'GET', body } = {}) {
   try { data = await res.json(); } catch { /* ignore */ }
   if (!res.ok) {
     const err = data.error ?? {};
+    if (err.code === 'MANDATE_NOT_SET_UP') onNeedsSetup();
     throw Object.assign(new Error(err.message || `Request failed (${res.status})`), { status: res.status, code: err.code, details: err.details, requestId: err.requestId });
   }
   return data;
@@ -254,8 +259,10 @@ function policyChecks(p) {
 }
 
 // The statement is built once and updated in place, so the budget bar and the remaining amount animate smoothly.
+// Before the owner has set a mandate up it shows an empty statement with a clear next step instead.
 const mv = {};
 const term = (k, v) => h('div', { class: 'term' }, h('dt', {}, k), h('dd', {}, v));
+
 function buildMandate() {
   mv.name = h('p', { class: 'st-name' });
   mv.remaining = h('span', { class: 'num' });
@@ -267,6 +274,7 @@ function buildMandate() {
   mv.legendHeld = h('span', {}, h('b', { class: 'sw-held' }), h('span'));
   mv.cap = h('span'); mv.day = h('span'); mv.pace = h('span'); mv.exp = h('span'); mv.sellers = h('span');
   mv.cats = h('span', { class: 'cats' });
+  mv.last = undefined; mv.painted = false; mv.catKey = undefined; // the first paint of a new statement counts up from $0.00
   $('mandate').replaceChildren(
     h('div', { class: 'st-main' },
       mv.name,
@@ -285,14 +293,33 @@ function buildMandate() {
   );
 }
 
+function buildEmptyMandate() {
+  const todo = (k, v = 'You choose') => h('div', { class: 'term todo' }, h('dt', {}, k), h('dd', {}, v));
+  $('mandate').replaceChildren(
+    h('div', { class: 'st-main st-empty' },
+      h('p', { class: 'st-name' }, 'No mandate yet'),
+      h('p', { class: 'st-label' }, 'Available to spend'),
+      h('p', { class: 'figure' }, h('span', { class: 'num' }, usd(0))),
+      h('p', { class: 'st-empty-text' }, 'You decide how much the assistant may spend and what it may buy. Nothing is pre-set, and nothing can be searched or bought until you choose.'),
+      h('div', { class: 'st-cta' }, h('button', { class: 'btn primary', type: 'button', onclick: () => openSetup() }, 'Set up my mandate'))),
+    h('dl', { class: 'terms' },
+      todo('Total budget'), todo('Per-purchase limit'), todo('Categories'), todo('Daily limit', 'Optional'), todo('Sellers', 'Optional'),
+      term('Settlement', 'PayPal, human-approved')),
+  );
+}
+
 function renderMandate(m) {
-  if (!mv.name) buildMandate();
+  $('mandate').removeAttribute('aria-busy');
+  if (!m.configured) {
+    if (mv.shown !== 'empty') { buildEmptyMandate(); mv.shown = 'empty'; }
+    return;
+  }
+  if (mv.shown !== 'live') { buildMandate(); mv.shown = 'live'; }
   const pct = (c) => `${Math.min(100, Math.max(0, (c / m.budget_cents) * 100))}%`;
   const held = m.committed_cents - m.captured_cents;
   mv.name.textContent = m.name;
   tweenText(mv.remaining, mv.last ?? 0, m.remaining_cents, usd, mv.last === undefined ? 1200 : 480); // first paint counts up from $0.00
   mv.last = m.remaining_cents;
-  $('mandate').removeAttribute('aria-busy');
   mv.of.textContent = `of ${usd(m.budget_cents)}`;
   const fill = () => { mv.spent.style.width = pct(m.captured_cents); mv.held.style.width = pct(held); };
   if (!mv.painted && motionOn()) { mv.painted = true; mv.spent.style.width = '0%'; mv.held.style.width = '0%'; setTimeout(fill, 450); } else { mv.painted = true; fill(); }
@@ -316,11 +343,14 @@ let msgSig = '';
 let msgCount = -1;
 function renderMessages(msgs) {
   const box = $('messages');
-  const sig = JSON.stringify(msgs) + getPrefs().traceOpen;
+  const ready = Boolean(state?.mandate.configured);
+  const sig = JSON.stringify(msgs) + getPrefs().traceOpen + ready;
   if (sig === msgSig) return; // keep open <details> / scroll position stable across polling refreshes
   msgSig = sig;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
-  const list = msgs.length ? msgs : [{ role: 'assistant', content: 'Tell me what you need and I will request each item. Anything outside your mandate is blocked before it reaches PayPal, and you approve every payment yourself.' }];
+  const list = msgs.length ? msgs : [{ role: 'assistant', content: ready
+    ? 'Tell me what you need and I will request each item. Anything outside your mandate is blocked before it reaches PayPal, and you approve every payment yourself.'
+    : 'Hello. Before I can help, set up your mandate so I know how much I may spend and what I may buy. Then tell me what you need and I will request each item for your approval.' }];
   const firstNew = msgCount < 0 ? Infinity : msgCount; // nothing animates on first paint; later only genuinely new replies do
   box.replaceChildren(...list.map((m, i) => {
     const enter = m.role === 'assistant' && i >= firstNew ? ' enter' : '';
@@ -350,14 +380,17 @@ function renderApprovals(purchases) {
   const recent = purchases.filter((p) => !['pending', 'capturing', 'reserving'].includes(p.status)).slice(0, 6);
   $('approvals-count').textContent = pending.length ? `${pending.length} waiting` : '';
   setPendingApprovals(pending.length);
-  const sig = JSON.stringify([...pending, ...recent].map((p) => [p.id, p.status, p.reason, p.needs_confirmation]));
+  const ready = Boolean(state?.mandate.configured);
+  const sig = JSON.stringify([ready, ...[...pending, ...recent].map((p) => [p.id, p.status, p.reason, p.needs_confirmation])]);
   if (sig === approvalsSig) return;
   approvalsSig = sig;
 
   const root = $('approvals');
   root.removeAttribute('aria-busy');
   const kids = [];
-  if (!pending.length) kids.push(h('p', { class: 'empty' }, 'Nothing is waiting for you. Ask the assistant to find something, or search the web yourself. Allowed requests appear here for your approval.'));
+  if (!pending.length) kids.push(h('p', { class: 'empty' }, ready
+    ? 'Nothing is waiting for you. Ask the assistant to find something, or search the web yourself. Allowed requests appear here for your approval.'
+    : 'Nothing yet. Once your mandate is set up, requests from the assistant or your own searches wait here for your approval.'));
   for (const p of pending) {
     const isNew = !seenApprovals.has(p.id);
     const slot = h('div', { class: 'pp-slot' });
@@ -500,6 +533,7 @@ function ensureGrids() {
 function render(s) {
   state = s;
   renderMandate(s.mandate);
+  syncLock();
   renderProposals(s.proposals ?? []);
   if (!chatBusy) renderMessages(s.messages); // keep the progress bubble while the assistant works
   renderApprovals(s.purchases);
@@ -542,62 +576,105 @@ async function send(text) {
     clearInterval(tick);
     clearInterval(live);
     chatBusy = false;
-    $('chat-send').disabled = false;
     msgSig = ''; // force a repaint so the final reply replaces the progress bubble
     await refresh();
-    input.focus();
+    syncLock();
+    if (!input.disabled) input.focus();
   }
 }
 
-// ------------------------------------------------------------------ mandate editor (increases need an explicit confirmation)
+// ------------------------------------------------------------------ mandate: first-time setup and the editor
+// The same dialog does both. Setup starts EMPTY (the owner picks every figure; nothing is pre-filled) and activates the
+// mandate; editing an existing mandate asks for confirmation when a change gives the assistant more spending power.
+let setupMode = false;
 let editNeedsConfirm = false;
 const domainLines = (text) => String(text).split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+const pickedCats = () => [...$('edit-cats').querySelectorAll('input:checked')].map((i) => i.value);
+const saveLabel = () => (setupMode ? 'Activate mandate' : 'Save mandate');
 
 function resetEditConfirm() {
   editNeedsConfirm = false;
   $('edit-confirm').hidden = true;
   $('edit-ack').checked = false;
   $('edit-save').disabled = false;
-  $('edit-save').textContent = 'Save mandate';
+  $('edit-save').textContent = saveLabel();
 }
 
-function openEditor() {
-  const m = state.mandate;
+/** Plain-language read-back of what the owner is about to allow, and the cap-vs-budget rule, while they type. */
+function updateSummary() {
+  if (!setupMode) return;
   const f = $('form-edit');
+  const budget = Number(f.elements.budget.value);
+  const cap = Number(f.elements.cap.value);
+  const tooHigh = budget > 0 && cap > budget;
+  f.elements.cap.setCustomValidity(tooHigh ? 'The per-purchase cap cannot be more than the total budget.' : '');
+  const cats = pickedCats();
+  const out = $('edit-summary');
+  if (!(budget >= 1) || !(cap >= 1)) out.textContent = 'Enter your total budget and the most you are happy to spend on a single item.';
+  else if (tooHigh) out.textContent = 'The per-purchase cap cannot be more than the total budget.';
+  else out.textContent = `The assistant may ask to spend up to ${usd(Math.round(budget * 100))} in total, never more than ${usd(Math.round(cap * 100))} on one item${cats.length ? `, from: ${cats.join(', ')}` : ''}. You still approve every payment in PayPal.`;
+  out.classList.toggle('warn', tooHigh);
+}
+
+function openMandateDialog() {
+  if (!state || $('dlg-edit').open) return;
+  const m = state.mandate;
+  setupMode = !m.configured;
+  const f = $('form-edit');
+  $('edit-title').textContent = setupMode ? 'Set up your mandate' : 'Edit mandate';
+  $('edit-intro').hidden = !setupMode;
+  $('edit-summary').hidden = !setupMode;
   f.elements.name.value = m.name;
-  f.elements.budget.value = m.budget_cents / 100;
-  f.elements.cap.value = m.per_item_cap_cents / 100;
-  f.elements.pace.value = m.max_per_hour ?? '';
+  f.elements.budget.value = setupMode ? '' : m.budget_cents / 100;
+  f.elements.cap.value = setupMode ? '' : m.per_item_cap_cents / 100;
+  f.elements.pace.value = setupMode ? (cfg.defaultPace ?? '') : (m.max_per_hour ?? '');
   f.elements.expires.value = m.expires_at ? new Date(m.expires_at).toISOString().slice(0, 10) : '';
   f.elements.daily.value = m.max_per_day_cents ? m.max_per_day_cents / 100 : '';
   f.elements.blocked.value = m.blocked_sellers.join('\n');
   f.elements.allowed.value = m.allowed_sellers.join('\n');
+  $('edit-more').open = !setupMode;
   $('edit-cats').replaceChildren(...state.categories.map((c) => h('label', {}, h('input', { type: 'checkbox', value: c, checked: m.categories.includes(c) }), c)));
   $('edit-error').hidden = true;
   resetEditConfirm();
+  updateSummary();
   $('dlg-edit').showModal();
+  (setupMode ? f.elements.budget : f.elements.name).focus();
 }
+const openEditor = openMandateDialog;
+/** Offer the setup dialog when (and only when) the mandate has not been set up. */
+const openSetup = () => { if (state && !state.mandate.configured) openMandateDialog(); };
 
 async function saveEditor(ev) {
   ev.preventDefault();
   const f = $('form-edit');
+  const err = $('edit-error');
+  const fail = (msg) => { err.textContent = msg; err.hidden = false; };
+  err.hidden = true;
+  if (!f.reportValidity()) return;
+  if (setupMode && !pickedCats().length) return fail('Choose at least one category the assistant may buy from.');
+  const wasSetup = setupMode;
   try {
-    await api('/api/mandate', { method: 'PUT', body: {
+    await api(wasSetup ? '/api/mandate/setup' : '/api/mandate', { method: wasSetup ? 'POST' : 'PUT', body: {
       name: f.elements.name.value,
       budget_cents: Math.round(Number(f.elements.budget.value) * 100),
       per_item_cap_cents: Math.round(Number(f.elements.cap.value) * 100),
-      categories: [...$('edit-cats').querySelectorAll('input:checked')].map((i) => i.value),
+      categories: pickedCats(),
       max_per_hour: f.elements.pace.value === '' ? null : Number(f.elements.pace.value),
       // end of the chosen day, local time
       expires_at: f.elements.expires.value === '' ? null : new Date(`${f.elements.expires.value}T23:59:59`).getTime(),
       max_per_day_cents: f.elements.daily.value === '' ? null : Math.round(Number(f.elements.daily.value) * 100),
       blocked_sellers: domainLines(f.elements.blocked.value),
       allowed_sellers: domainLines(f.elements.allowed.value),
-      confirm_increase: editNeedsConfirm && $('edit-ack').checked,
+      confirm_increase: !wasSetup && editNeedsConfirm && $('edit-ack').checked,
     } });
     $('dlg-edit').close();
-    toast('Mandate updated.', false, null, true);
+    if (wasSetup) {
+      toast('Your mandate is active. The assistant can now search and request purchases inside it.', false,
+        { label: 'Start shopping', run: () => { navigate('overview'); setTimeout(() => $('chat-input').focus(), 60); } }, true);
+      celebrateAfterRefresh = true;
+    } else toast('Mandate updated.', false, null, true);
     await refresh();
+    if (celebrateAfterRefresh) { celebrateAfterRefresh = false; celebrate(); }
   } catch (e) {
     if (e.code === 'CONFIRMATION_REQUIRED' && e.details?.changes) {
       editNeedsConfirm = true;
@@ -606,12 +683,32 @@ async function saveEditor(ev) {
       $('edit-ack').checked = false;
       $('edit-save').textContent = 'Confirm and apply';
       $('edit-save').disabled = true;
-      $('edit-error').hidden = true;
+      err.hidden = true;
       return;
     }
-    $('edit-error').textContent = e.message;
-    $('edit-error').hidden = false;
+    fail(e.message);
   }
+}
+
+/** Setup is the first thing a new owner has to do, so until it is done the rest of the UI says so and stays quiet. */
+// The bar is the way back to setup from every page except Account, where the statement already carries the button.
+const syncSetupBar = () => { $('setup-bar').hidden = !state || state.mandate.configured || currentRoute() === 'overview'; };
+
+function syncLock() {
+  const ready = Boolean(state?.mandate.configured);
+  syncSetupBar();
+  $('chat-send').disabled = !ready || chatBusy;
+  $('chat-input').disabled = !ready;
+  for (const id of ['search-input', 'search-max']) $(id).disabled = !ready;
+  $('search-btn').disabled = !ready || searching;
+  if (lockSig === ready) return;
+  lockSig = ready;
+  document.body.classList.toggle('needs-setup', !ready);
+  $('btn-edit').hidden = !ready;
+  $('search-locked').hidden = ready;
+  $('chat-input').placeholder = ready ? 'e.g. a desk lamp under $40' : 'Set up your mandate to start';
+  renderChips();
+  renderSearchExamples();
 }
 
 // ------------------------------------------------------------------ manual web search
@@ -657,6 +754,7 @@ async function runSearch(e) {
   if (query.length < 2) return;
   const max = Number($('search-max').value);
   const btn = $('search-btn');
+  searching = true;
   btn.disabled = true;
   btn.textContent = 'Searching...';
   progress.start();
@@ -668,20 +766,21 @@ async function runSearch(e) {
     $('search-results').replaceChildren(h('p', { class: 'empty' }, err.message));
   }
   progress.stop();
-  btn.disabled = false;
+  searching = false;
+  syncLock();
   btn.textContent = 'Search';
 }
 
 // ------------------------------------------------------------------ boot
 function renderChips() {
-  const on = getPrefs().showChips;
+  const on = getPrefs().showChips && Boolean(state?.mandate.configured);
   $('chips').hidden = !on;
   $('chips').replaceChildren(...(on ? [h('span', { class: 'suggest-label' }, 'Try:'), ...SUGGESTIONS.map((s) => h('button', { type: 'button', onclick: () => send(s) }, s))] : []));
 }
 const SEARCH_EXAMPLES = ['ergonomic office chair', 'felt desk mat', 'ergonomic vertical mouse', 'stainless steel water bottle', 'ceramic coffee mug'];
 function renderSearchExamples() {
   $('search-examples').replaceChildren(h('span', { class: 'suggest-label' }, 'Examples that usually work:'),
-    ...SEARCH_EXAMPLES.map((q) => h('button', { type: 'button', onclick: () => { $('search-input').value = q; $('search-form').requestSubmit(); } }, q)));
+    ...SEARCH_EXAMPLES.map((q) => h('button', { type: 'button', disabled: !state?.mandate.configured, onclick: () => { $('search-input').value = q; $('search-form').requestSubmit(); } }, q)));
 }
 const syncHint = () => { const p = getPrefs(); $('how-hint').hidden = !(p.showHint && !p.hintDismissed); };
 
@@ -708,7 +807,7 @@ async function boot() {
     b.textContent = notices.join(' ');
   }
 
-  renderSettings($('settings-content'), { toast });
+  renderSettings($('settings-content'), { toast, startTour: () => openTour() });
   renderInfo($('info-content'), cfg, { toast });
   $('search-card').hidden = !cfg.webSearch;
   $('search-off').hidden = Boolean(cfg.webSearch);
@@ -733,8 +832,20 @@ async function boot() {
   $('search-form').addEventListener('submit', runSearch);
 
   $('btn-edit').addEventListener('click', openEditor);
+  $('btn-setup-bar').addEventListener('click', openSetup);
   $('edit-save').addEventListener('click', saveEditor);
-  $('form-edit').addEventListener('input', (e) => { if (editNeedsConfirm && e.target.id !== 'edit-ack') resetEditConfirm(); });
+  $('form-edit').addEventListener('input', (e) => { if (editNeedsConfirm && e.target.id !== 'edit-ack') resetEditConfirm(); updateSummary(); });
+  const setAllCats = (on) => { $('edit-cats').querySelectorAll('input').forEach((i) => { i.checked = on; }); updateSummary(); };
+  $('edit-cats-all').addEventListener('click', () => setAllCats(true));
+  $('edit-cats-none').addEventListener('click', () => setAllCats(false));
+
+  // Welcome tour: automatic once per device (remembered in this browser), replayable from Settings and How it works.
+  initTour({
+    context: () => ({ configured: Boolean(state?.mandate.configured), highValueCents: cfg.highValueCents }),
+    finished: ({ wantsSetup }) => { if (wantsSetup) setTimeout(openSetup, 120); },
+  });
+  $('how-tour').addEventListener('click', () => openTour());
+  onNeedsSetup = () => { refresh().then(() => { if (!$('dlg-tour').open) openSetup(); }); };
   $('edit-ack').addEventListener('change', () => { $('edit-save').disabled = !$('edit-ack').checked; });
 
   $('proposal-ack').addEventListener('change', () => { $('proposal-go').disabled = !$('proposal-ack').checked; });
@@ -755,10 +866,13 @@ async function boot() {
     $('grid-purchases').hidden = t.dataset.tab !== 'purchases';
     $('grid-audit').hidden = t.dataset.tab !== 'audit';
   }));
-  onRoute((route) => { if (route === 'ledger') ensureGrids(); });
+  onRoute((route) => { if (route === 'ledger') ensureGrids(); syncSetupBar(); });
   if (document.querySelector('.page:not([hidden])')?.dataset.page === 'ledger') ensureGrids();
 
   await refresh();
+  // First thing a new visitor sees: the tour (once per device), then the mandate setup. A returning visitor whose
+  // mandate is still not set up goes straight to the setup.
+  if (state) { if (!tourSeen()) openTour({ first: true }); else openSetup(); }
   // Picks up webhook-driven changes (e.g. capture completed server-side) without a manual reload: faster while something is in flight.
   const poll = async () => {
     if (!document.hidden && !chatBusy) await refresh();

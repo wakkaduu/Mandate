@@ -1,7 +1,7 @@
 // The agent tool surface, shared by every "brain" (Gemini loop, Claude loop) and the external-agent endpoint.
 // Nothing here can move money: propose_purchase goes through the policy gate and ends in a PayPal order
 // that a human must approve.
-import { proposePurchase, getMandate } from './purchases.js';
+import { proposePurchase, getMandate, NOT_SET_UP_MESSAGE } from './purchases.js';
 import { evaluate } from './policy.js';
 import { createProposal } from './ledger-tools.js';
 import { searchWeb, SearchUnavailable } from './web/search.js';
@@ -89,11 +89,13 @@ export async function runTool(sid, name, input = {}) {
   try {
     if (name === 'search_products') {
       const q = String(input?.query ?? '').slice(0, 120);
+      // No budget, no search: it would spend search credits for a shopper who has nothing to spend.
+      const m = await getMandate(sid);
+      if (!m.configured) return { result: { error: NOT_SET_UP_MESSAGE }, step: { tool: name, ok: false, text: 'Search skipped: the owner has not set up a mandate yet' } };
       if (!searchAllowed(sid)) return { result: { error: 'Search limit reached for this hour.' }, step: { tool: name, ok: false, text: 'Search limit reached for this hour' } };
       const max = Number.isFinite(input?.max_price_usd) && input.max_price_usd > 0 ? input.max_price_usd : undefined;
       try {
         const { offers, dropped } = await searchWeb({ query: q, max_price_usd: max, category: input?.category });
-        const m = await getMandate(sid);
         const views = offers.map((o) => offerView(o, m)).sort((a, b) => Number(b.fits_mandate) - Number(a.fits_mandate) || a.price_usd - b.price_usd);
         return {
           result: { offers: views, ...(dropped.length ? { skipped: `${dropped.length} result(s) skipped because their price could not be verified` } : {}) },
@@ -131,9 +133,10 @@ export async function runTool(sid, name, input = {}) {
     }
     if (name === 'get_mandate') {
       const m = await getMandate(sid);
+      if (!m.configured) return { result: { set_up: false, note: NOT_SET_UP_MESSAGE }, step: { tool: name, ok: true, text: 'Checked the mandate: the owner has not set it up yet' } };
       return {
         result: {
-          budget_usd: m.budget_cents / 100, per_purchase_cap_usd: m.per_item_cap_cents / 100, allowed_categories: m.categories,
+          set_up: true, budget_usd: m.budget_cents / 100, per_purchase_cap_usd: m.per_item_cap_cents / 100, allowed_categories: m.categories,
           remaining_usd: m.remaining_cents / 100, max_requests_per_hour: m.max_per_hour, expired: m.expired,
           max_per_day_usd: m.max_per_day_cents === null ? null : m.max_per_day_cents / 100, spent_last_24h_usd: m.spent_today_cents / 100,
           blocked_sellers: m.blocked_sellers, allowed_sellers: m.allowed_sellers,

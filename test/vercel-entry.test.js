@@ -22,6 +22,8 @@ test('api/index.js exports a handler that serves health, config and a session', 
   const state = await fetch(`${base}/api/state`);
   assert.equal(state.status, 200);
   assert.ok(state.headers.get('set-cookie').includes('HttpOnly'));
-  assert.equal((await state.json()).mandate.budget_cents, 30000);
+  const { mandate } = await state.json();
+  assert.equal(mandate.configured, false, 'a new session has no mandate until its owner sets one up');
+  assert.equal(mandate.budget_cents, 0);
   server.close();
 });

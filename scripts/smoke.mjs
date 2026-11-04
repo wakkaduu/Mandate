@@ -29,6 +29,14 @@ ok('web search provider configured', cfg.webSearch === true, (cfg.searchProvider
 ok('config', Boolean(cfg.paypalMode), `paypal=${cfg.paypalMode} configured=${cfg.paypalConfigured} agent=${cfg.agentMode} webhooks=${cfg.webhooks}`);
 if (cfg.paypalMode === 'sandbox') ok('PayPal sandbox credentials configured', cfg.paypalConfigured === true);
 
+// There is no built-in budget: nothing works until the owner sets one.
+const locked = await call('POST', '/api/chat', { message: 'an LED desk lamp under $60' });
+ok('nothing can be asked or bought before the owner sets a budget (409)', locked.status === 409 && locked.json?.error?.code === 'MANDATE_NOT_SET_UP', locked.json?.error?.code ?? `status ${locked.status}`);
+const setup = await call('POST', '/api/mandate/setup', { name: 'Smoke test', budget_cents: 30000, per_item_cap_cents: 12000, categories: ['office', 'electronics', 'home'] });
+ok('the owner sets a mandate (budget, cap, categories)', setup.status === 200 && setup.json?.mandate?.configured === true && setup.json.mandate.budget_cents === 30000, setup.json?.error?.message);
+const again = await call('POST', '/api/mandate/setup', { name: 'Again', budget_cents: 99900, per_item_cap_cents: 99900, categories: ['office'] });
+ok('setup cannot be repeated to change the mandate (409)', again.status === 409 && again.json?.error?.code === 'ALREADY_SET_UP', again.json?.error?.code);
+
 const chat = await call('POST', '/api/chat', { message: 'an LED desk lamp under $60' });
 ok('agent replies', chat.status === 200 && typeof chat.json?.reply === 'string', `mode=${chat.json?.mode} model=${chat.json?.model}`);
 if (cfg.paypalMode === 'sandbox') ok('a real AI model answered (not the "AI unavailable" reply)', chat.json?.mode && chat.json.mode !== 'offline', 'if this fails: missing/exhausted AI key or quota');

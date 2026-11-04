@@ -1,6 +1,6 @@
 # Demo video brief (Remotion + ElevenLabs)
 
-Machine-readable storyboard: [docs/video/storyboard.json](video/storyboard.json) (scene ids, start/duration, narration text, captions, what to capture, UI steps). Target 2:42, hard limit under 3:00.
+Machine-readable storyboard: [docs/video/storyboard.json](video/storyboard.json) (scene ids, start/duration, narration text, captions, what to capture, UI steps). Target 2:46, hard limit under 3:00.
 
 ## Rules the video must respect
 - Public on YouTube, shows the project working on its own device, **no third-party trademarks, no copyrighted music** (Official Rules, section 4). Show only PayPal's own buttons and the app itself.
@@ -18,7 +18,7 @@ Machine-readable storyboard: [docs/video/storyboard.json](video/storyboard.json)
 - Deployed app or localhost running with real PayPal test credentials and an AI assistant that answers (run `npm run smoke -- <url>` first; it should be green).
 - Warm the search cache: `npm run warm -- <url>` so the live searches come back fast (30 minute cache; 3 hours on the Render blueprint).
 - Set `REFUND_COOLING_OFF_SECONDS=8` for the recording so the refund countdown fits the scene (the default 30 s is the production value).
-- Reset to a clean mandate (default: $300 budget, $120 cap, categories office/electronics/home). Settings -> "New here?" hint off if you do not want it in shot.
+- Start from a clean browser profile (or clear this site's data) so the welcome tour and the empty "No mandate yet" statement are in shot. Set the mandate up **on camera** with example figures: $300 budget, $120 per-purchase cap, categories office, electronics and home. Settings -> "New here?" hint off if you do not want it in shot.
 - Have the test buyer login ready (from your local `accounts` file; rotate those passwords after the contest).
 - Clear notifications; hide bookmarks bar; no other app windows visible.
 

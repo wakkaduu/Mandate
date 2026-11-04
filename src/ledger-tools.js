@@ -3,7 +3,7 @@
 //   2. Mandate PROPOSALS: the assistant may suggest a change to the limits, but only a human can apply it.
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
-import { AppError, getMandate, updateMandate, listCategories, listPurchases, listAudit, audit } from './purchases.js';
+import { AppError, getMandate, requireConfigured, updateMandate, listCategories, listPurchases, listAudit, audit } from './purchases.js';
 import { money, centsToValue } from './policy.js';
 import { normalizeSellerList } from './sellers.js';
 
@@ -51,6 +51,7 @@ function usdToCents(v, label) {
 }
 
 export async function createProposal(sid, input = {}) {
+  await requireConfigured(sid); // there is nothing to adjust until the owner has set the mandate up
   const reason = String(input.reason ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
   if (!reason) throw new AppError(400, 'BAD_INPUT', 'Say why you are suggesting the change.');
   const known = new Set(listCategories());

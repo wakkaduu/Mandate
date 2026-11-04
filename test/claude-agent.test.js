@@ -50,7 +50,11 @@ const base = `http://127.0.0.1:${server.address().port}`;
 
 async function session() {
   const r = await fetch(`${base}/api/state`);
-  return r.headers.get('set-cookie').split(';')[0];
+  const cookie = r.headers.get('set-cookie').split(';')[0];
+  // the app has no built-in budget: the owner sets one up first
+  const setup = await fetch(`${base}/api/mandate/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ name: 'Home office refresh', budget_cents: 30000, per_item_cap_cents: 12000, categories: ['office', 'electronics', 'home'] }) });
+  assert.equal(setup.status, 200);
+  return cookie;
 }
 const post = (cookie, path, body) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
 const get = (cookie, path) => fetch(base + path, { headers: { cookie } }).then((r) => r.json());

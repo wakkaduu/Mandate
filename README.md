@@ -1,6 +1,6 @@
 # Mandate - spend rails for AI shopping agents, settled by PayPal
 
-Give an AI agent a **spending mandate** (budget, per-purchase cap, allowed categories). It shops for you; a policy engine approves or blocks every request *before PayPal is called*; allowed purchases become real **PayPal sandbox orders** that you approve with one tap; every decision lands in a live **AG Grid** ledger. Built for the PayPal AI Hackathon.
+Give an AI agent a **spending mandate** (budget, per-purchase cap, allowed categories). It shops for you; a policy engine approves or blocks every request *before PayPal is called*; allowed purchases become real **PayPal sandbox orders** that you approve with one tap; every decision lands in a live **AG Grid** ledger. Built by Sav for the PayPal AI Hackathon, developed with Claude Code.
 
 ![Agent proposes purchases and the mandate blocks one](docs/screenshots/01-agent-proposes.png)
 
@@ -100,7 +100,11 @@ Uses an in-process PayPal **simulator** and, without an AI key, no shopping at a
 | `NODE_ENV` | hosted | `production` on hosted deployments (also blocks the PayPal simulator) |
 | `PORT`, `DATABASE_PATH`, `PUBLIC_URL` | no | Server settings |
 
+### First run
+A new visitor sees a short **welcome tour** (once per device; it is remembered in the browser and can be replayed from Settings, under Help). Then they **set their own mandate**: total budget, per-purchase cap and the categories the assistant may buy from. Nothing is pre-filled and there is no built-in amount: until the owner has done this, search, chat and purchase requests are refused by the server (`409 MANDATE_NOT_SET_UP`), not just disabled in the UI.
+
 ### Try this demo script
+0. Set up the mandate when asked, for example a **$300** budget, a **$120** per-purchase cap and the categories office, electronics and home (these are example values to type, not defaults).
 1. Click the first suggestion chip: *"Set up my desk: a lamp under $40, a mechanical keyboard and a 4K monitor"*.
 2. See the lamp and keyboard queued under **Approvals** and the 4K monitor **blocked** (over the $120 cap) with a reason and an alternative.
 3. Approve the lamp with the PayPal button (sandbox buyer login). Watch the budget bar and the ledger update.
@@ -157,7 +161,7 @@ api/index.js       Vercel serverless entry (the Express app)
 src/mcp.js         MCP server (Streamable HTTP, bearer-token auth)
 src/mock-paypal.js In-process PayPal simulator (mock mode / tests only)
 src/db.js          libSQL (SQLite file or Turso) schema + migrations
-src/categories.js  Mandate categories + default mandate
+src/categories.js  Mandate categories (there is no default budget: the owner sets it)
 public/            Vanilla JS UI + AG Grid ledger
 test/              node:test suites
 ```

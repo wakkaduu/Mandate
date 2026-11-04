@@ -62,11 +62,14 @@ function select(key, labelId) {
   return el;
 }
 
-export function renderSettings(root, { toast }) {
+export function renderSettings(root, { toast, startTour }) {
   const preview = h('div', { class: 'motion-demo', 'aria-hidden': 'true' }, h('span', {}), h('span', {}), h('span', {}));
   const play = () => { preview.classList.remove('play'); void preview.offsetWidth; preview.classList.add('play'); };
 
   root.replaceChildren(
+    section('Help', 'A short walkthrough of how Mandate works.',
+      row('Welcome tour', 'It opens by itself the first time you visit on this device, and not again. Replay it here whenever you like.',
+        h('button', { class: 'btn', type: 'button', id: 'btn-replay-tour', onclick: () => startTour() }, icon('help', { size: 16 }), 'Replay tour'), 'set-tour')),
     section('Appearance', 'Color, density and text size.',
       row('Theme', 'System follows your device.', segmented('theme', 'set-theme'), 'set-theme'),
       row('Accent color', 'Used for buttons and highlights.', swatches('set-accent'), 'set-accent'),

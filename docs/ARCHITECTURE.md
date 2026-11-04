@@ -44,6 +44,7 @@ The assistant, the manual search and any external agent all reach money through 
 | Model labels a TV as "office" | Category is derived by the server from the verified page |
 | Malicious product URL (SSRF) | https only, no credentials/odd ports, private/loopback/metadata addresses refused at DNS-connect time, redirects re-validated, size/time caps |
 | Listing page or deposit page mistaken for a product | Several distinct products on a page = not a product page; titles like deposit/sample/gift card are dropped |
+| Agent or API client spends before the owner has chosen any budget | There is no built-in amount: a new session has no mandate. Chat, search, purchase requests and suggestions answer `409 MANDATE_NOT_SET_UP`; the purchase gate and the policy engine refuse independently (defence in depth) |
 | Agent raises its own limits | `suggest_mandate_change` only creates a suggestion; applying needs a human acknowledgement; any increase of spending power needs explicit confirmation |
 | Buying from a seller the owner distrusts | Seller blocklist / allow-list, checked before any money rule |
 | Runaway spending over time | Rolling daily limit, hourly pace, total budget including orders awaiting approval |

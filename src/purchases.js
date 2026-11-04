@@ -2,7 +2,7 @@
 // Every state change is audited. Amounts come only from stored offers (server-verified web prices).
 import { randomUUID, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { db, tx } from './db.js';
-import { DEFAULT_MANDATE, CATEGORIES } from './categories.js';
+import { MANDATE_DEFAULTS, CATEGORIES } from './categories.js';
 import { getOffer } from './offers.js';
 import { normalizeSellerList } from './sellers.js';
 import { COMMITTED_STATUSES, evaluate, centsToValue, money, MAX_QTY } from './policy.js';
@@ -38,17 +38,23 @@ const ORDER_LIFETIME_MS = 3 * 3600 * 1000; // PayPal keeps a CREATED order captu
 const now = () => Date.now();
 
 // ---------------------------------------------------------------- sessions & mandate
+export const NOT_SET_UP_MESSAGE = 'You have not set a spending mandate yet. Set your budget first: nothing can be searched or bought until you do.';
+
+// A new session starts WITHOUT a usable mandate. The row exists (the table needs one) but holds 1-cent placeholders
+// and activated_at = NULL; getMandate() reports it as "not configured" with zero amounts, and every path that could
+// search or spend refuses until the owner has chosen their own figures (setUpMandate).
+const PLACEHOLDER = [MANDATE_DEFAULTS.name, 1, 1, '[]', MANDATE_DEFAULTS.max_per_hour];
+
 export async function ensureSession(sid) {
   const d = await db();
   if (sid && await d.get('SELECT 1 AS ok FROM sessions WHERE id = ?', [sid])) return sid;
   const id = randomUUID();
   await tx(async (t) => {
     await t.run('INSERT INTO sessions (id, created_at) VALUES (?, ?)', [id, now()]);
-    await t.run('INSERT INTO mandates (session_id,name,budget_cents,per_item_cap_cents,categories,max_per_hour,updated_at) VALUES (?,?,?,?,?,?,?)',
-      [id, DEFAULT_MANDATE.name, DEFAULT_MANDATE.budget_cents, DEFAULT_MANDATE.per_item_cap_cents,
-        JSON.stringify(DEFAULT_MANDATE.categories), DEFAULT_MANDATE.max_per_hour, now()]);
+    await t.run('INSERT INTO mandates (session_id,name,budget_cents,per_item_cap_cents,categories,max_per_hour,updated_at,activated_at) VALUES (?,?,?,?,?,?,?,NULL)',
+      [id, ...PLACEHOLDER, now()]);
   });
-  await audit(id, null, 'mandate.created', `Mandate "${DEFAULT_MANDATE.name}": ${money(DEFAULT_MANDATE.budget_cents)} budget, ${money(DEFAULT_MANDATE.per_item_cap_cents)} per-purchase cap`);
+  await audit(id, null, 'session.started', 'New session. Waiting for the owner to set up a spending mandate.');
   return id;
 }
 
@@ -58,11 +64,10 @@ export async function resetSession(sid) {
     await t.run('DELETE FROM audit WHERE session_id = ?', [sid]);
     await t.run('DELETE FROM messages WHERE session_id = ?', [sid]);
     await t.run('DELETE FROM mandate_proposals WHERE session_id = ?', [sid]);
-    await t.run("UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=NULL, max_per_hour=?, max_per_day_cents=NULL, blocked_sellers='[]', allowed_sellers='[]', updated_at=? WHERE session_id=?",
-      [DEFAULT_MANDATE.name, DEFAULT_MANDATE.budget_cents, DEFAULT_MANDATE.per_item_cap_cents,
-        JSON.stringify(DEFAULT_MANDATE.categories), DEFAULT_MANDATE.max_per_hour, now(), sid]);
+    await t.run("UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, max_per_hour=?, expires_at=NULL, max_per_day_cents=NULL, blocked_sellers='[]', allowed_sellers='[]', activated_at=NULL, updated_at=? WHERE session_id=?",
+      [...PLACEHOLDER, now(), sid]);
   });
-  await audit(sid, null, 'session.reset', 'Demo reset');
+  await audit(sid, null, 'session.reset', 'Demo reset: the mandate must be set up again');
   return getMandate(sid);
 }
 
@@ -84,9 +89,18 @@ export async function getMandate(sid, exec) {
   if (!exec) await expireStale(sid);
   const m = await d.get('SELECT * FROM mandates WHERE session_id = ?', [sid]);
   if (!m) throw new AppError(404, 'NO_MANDATE', 'Mandate not found');
+  if (m.activated_at == null) {
+    // Not set up by the owner yet: report zero everywhere (the stored 1-cent placeholders are an implementation detail).
+    return {
+      configured: false, name: '', budget_cents: 0, per_item_cap_cents: 0, categories: [], expires_at: null, max_per_hour: null,
+      max_per_day_cents: null, blocked_sellers: [], allowed_sellers: [], spent_today_cents: 0, expired: false,
+      committed_cents: 0, captured_cents: 0, remaining_cents: 0,
+    };
+  }
   const committed = await committedCents(d, sid);
   const captured = (await d.get("SELECT COALESCE(SUM(amount_cents),0) AS c FROM purchases WHERE session_id = ? AND status = 'captured'", [sid])).c;
   return {
+    configured: true,
     name: m.name,
     budget_cents: m.budget_cents,
     per_item_cap_cents: m.per_item_cap_cents,
@@ -104,17 +118,29 @@ export async function getMandate(sid, exec) {
   };
 }
 
-export async function updateMandate(sid, input) {
-  const cur = await getMandate(sid);
-  const name = input.name === undefined ? cur.name : String(input.name).trim().slice(0, 60);
-  const budget = input.budget_cents === undefined ? cur.budget_cents : input.budget_cents;
-  const cap = input.per_item_cap_cents === undefined ? cur.per_item_cap_cents : input.per_item_cap_cents;
-  const cats = input.categories === undefined ? cur.categories : input.categories;
-  const expires = input.expires_at === undefined ? cur.expires_at : input.expires_at;
-  const pace = input.max_per_hour === undefined ? cur.max_per_hour : input.max_per_hour;
-  const day = input.max_per_day_cents === undefined ? cur.max_per_day_cents : input.max_per_day_cents;
-  const blockedIn = normalizeSellerList(input.blocked_sellers === undefined ? cur.blocked_sellers : input.blocked_sellers);
-  const allowedIn = normalizeSellerList(input.allowed_sellers === undefined ? cur.allowed_sellers : input.allowed_sellers);
+/** Throws 409 MANDATE_NOT_SET_UP unless the owner has set their mandate up. Returns the mandate. */
+export async function requireConfigured(sid) {
+  const m = await getMandate(sid);
+  if (!m.configured) throw new AppError(409, 'MANDATE_NOT_SET_UP', NOT_SET_UP_MESSAGE);
+  return m;
+}
+
+/**
+ * Validate and normalise a full set of mandate terms. `base` supplies every field the caller left out (undefined);
+ * null means "none" (no expiry, no pace limit, no daily limit). Throws AppError(400) on any invalid value.
+ * `initial` = the owner is setting the mandate up for the first time: at least one category is required.
+ */
+function parseTerms(base, input, { initial = false } = {}) {
+  const pick = (k) => (input[k] === undefined ? base[k] : input[k]);
+  const name = (input.name === undefined ? base.name : String(input.name).trim().slice(0, 60)) || (initial ? MANDATE_DEFAULTS.name : '');
+  const budget = pick('budget_cents');
+  const cap = pick('per_item_cap_cents');
+  const cats = pick('categories');
+  const expires = pick('expires_at');
+  const pace = pick('max_per_hour');
+  const day = pick('max_per_day_cents');
+  const blockedIn = normalizeSellerList(pick('blocked_sellers'));
+  const allowedIn = normalizeSellerList(pick('allowed_sellers'));
   if (expires !== null && (!Number.isInteger(expires) || expires < now() || expires > now() + 366 * 86400_000)) {
     throw new AppError(400, 'BAD_INPUT', 'Expiry must be a future date within the next year (or empty for no expiry).');
   }
@@ -128,10 +154,39 @@ export async function updateMandate(sid, input) {
   for (const [label, r] of [['Blocked sellers', blockedIn], ['Allowed sellers', allowedIn]]) {
     if (r.bad) throw new AppError(400, 'BAD_INPUT', `${label} must be domain names like example.com (problem: ${r.bad}).`);
   }
-  const blocked = blockedIn.list;
-  const allowed = allowedIn.list;
   const known = new Set(listCategories());
   if (!Array.isArray(cats) || cats.some((c) => !known.has(c))) throw new AppError(400, 'BAD_INPUT', `Categories must be a subset of: ${[...known].join(', ')}.`);
+  if (initial && !cats.length) throw new AppError(400, 'BAD_INPUT', 'Choose at least one category the assistant may buy from.');
+  return { name, budget, cap, cats: [...new Set(cats)], expires, pace, day, blocked: blockedIn.list, allowed: allowedIn.list };
+}
+
+const describeTerms = (t) => `Budget ${money(t.budget)}, cap ${money(t.cap)}, categories: ${t.cats.join(', ') || 'none'}, pace ${t.pace ?? 'unlimited'}/h, daily limit ${t.day === null ? 'none' : money(t.day)}, blocked sellers: ${t.blocked.join(', ') || 'none'}, allowed sellers: ${t.allowed.join(', ') || 'any'}, expires ${t.expires ? new Date(t.expires).toISOString().slice(0, 10) : 'never'}`;
+
+/**
+ * First-time setup: the owner chooses every figure. There are no built-in amounts, so budget, per-purchase cap and
+ * at least one category are required. Optional: pace (defaults to a safe 6 per hour; null = unlimited), daily limit,
+ * expiry and seller lists. Nothing can be searched or bought before this succeeds.
+ */
+export async function setUpMandate(sid, input = {}) {
+  const cur = await getMandate(sid);
+  if (cur.configured) throw new AppError(409, 'ALREADY_SET_UP', 'Your mandate is already set up. Edit it instead.');
+  const blank = {
+    name: '', budget_cents: null, per_item_cap_cents: null, categories: [], expires_at: null, max_per_hour: MANDATE_DEFAULTS.max_per_hour,
+    max_per_day_cents: null, blocked_sellers: [], allowed_sellers: [],
+  };
+  const t = parseTerms(blank, input, { initial: true });
+  // Guarded on activated_at IS NULL so two simultaneous setups cannot both win.
+  const res = await (await db()).run('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=?, max_per_hour=?, max_per_day_cents=?, blocked_sellers=?, allowed_sellers=?, activated_at=?, updated_at=? WHERE session_id=? AND activated_at IS NULL',
+    [t.name, t.budget, t.cap, JSON.stringify(t.cats), t.expires, t.pace, t.day, JSON.stringify(t.blocked), JSON.stringify(t.allowed), now(), now(), sid]);
+  if (!res.changes) throw new AppError(409, 'ALREADY_SET_UP', 'Your mandate is already set up. Edit it instead.');
+  await audit(sid, null, 'mandate.activated', `Owner set up mandate "${t.name}": ${describeTerms(t)}`);
+  return getMandate(sid);
+}
+
+export async function updateMandate(sid, input) {
+  const cur = await getMandate(sid);
+  if (!cur.configured) throw new AppError(409, 'MANDATE_NOT_SET_UP', NOT_SET_UP_MESSAGE);
+  const { name, budget, cap, cats, expires, pace, day, blocked, allowed } = parseTerms(cur, input);
   // Anything that gives the agent MORE spending power is a big decision: the caller must confirm it explicitly.
   const more = [];
   if (budget > cur.budget_cents) more.push({ field: 'budget', from: money(cur.budget_cents), to: money(budget) });
@@ -151,7 +206,7 @@ export async function updateMandate(sid, input) {
   }
   await (await db()).run('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=?, max_per_hour=?, max_per_day_cents=?, blocked_sellers=?, allowed_sellers=?, updated_at=? WHERE session_id=?',
     [name, budget, cap, JSON.stringify(cats), expires, pace, day, JSON.stringify(blocked), JSON.stringify(allowed), now(), sid]);
-  await audit(sid, null, 'mandate.updated', `${more.length ? '[increase confirmed] ' : ''}Budget ${money(budget)}, cap ${money(cap)}, categories: ${cats.join(', ') || 'none'}, pace ${pace ?? 'unlimited'}/h, daily limit ${day === null ? 'none' : money(day)}, blocked sellers: ${blocked.join(', ') || 'none'}, allowed sellers: ${allowed.join(', ') || 'any'}, expires ${expires ? new Date(expires).toISOString().slice(0, 10) : 'never'}`);
+  await audit(sid, null, 'mandate.updated', `${more.length ? '[increase confirmed] ' : ''}${describeTerms({ budget, cap, cats, pace, day, blocked, allowed, expires })}`);
   return getMandate(sid);
 }
 
@@ -251,6 +306,8 @@ export async function proposePurchase(sid, { product_id, qty = 1, rationale = ''
   const row = await tx(async (t) => {
     await expireStale(sid, t);
     const m = await getMandate(sid, t);
+    // Nothing is bought before the owner has set their own budget (throwing rolls the transaction back: no ledger row).
+    if (!m.configured) throw new AppError(409, 'MANDATE_NOT_SET_UP', NOT_SET_UP_MESSAGE);
     const open = product
       ? await t.get(`SELECT 1 AS x FROM purchases WHERE session_id=? AND product_id=? AND status IN (${placeholders(COMMITTED)})`, [sid, product.id, ...COMMITTED])
       : null;

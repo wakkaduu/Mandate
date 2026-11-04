@@ -41,6 +41,13 @@
 
   <div id="banner" class="banner" role="region" aria-label="Setup notice" hidden></div>
 
+  <div id="setup-bar" class="setup-bar" role="region" aria-label="Mandate setup" hidden>
+    <div class="wrap setup-bar-inner">
+      <p><strong>Step 1: set your spending mandate.</strong> You choose how much the assistant may spend. Nothing can be searched or bought until you do.</p>
+      <button class="btn small primary" id="btn-setup-bar" type="button">Set up my mandate</button>
+    </div>
+  </div>
+
   <main id="main" class="wrap" tabindex="-1">
     <div class="page-head">
       <h1 id="page-title" tabindex="-1">Account</h1>
@@ -91,6 +98,9 @@
     <!-- ---------------------------------------------------------- Search -->
     <section class="page" id="page-search" data-page="search" hidden aria-labelledby="page-title">
       <section id="search-card" aria-label="Search the web">
+        <div class="notice warn" id="search-locked" hidden>
+          <p><strong>Set your mandate first.</strong> Searching and requesting purchases start once you have chosen a budget. Use the button above to set it up.</p>
+        </div>
         <p class="lede">Search the web yourself. This works even when the assistant is unavailable, and every request still goes through your mandate and PayPal approval.</p>
         <form id="search-form" class="search-form" autocomplete="off">
           <label class="field grow"><span>What are you looking for?</span><input id="search-input" type="text" minlength="2" maxlength="120" placeholder="e.g. standing desk, noise cancelling headphones" required></label>
@@ -125,6 +135,7 @@
 
     <!-- ---------------------------------------------------------- How it works (optional page) -->
     <section class="page" id="page-how" data-page="how" hidden aria-labelledby="page-title">
+      <p class="hint-line"><span>You choose the budget first; nothing is built in. Then these four steps run for every purchase.</span><button class="text-btn" id="how-tour" type="button">Replay the welcome tour</button></p>
       <ol class="steps-list">
         <li><span class="step-no" aria-hidden="true">1</span><div><h2>The agent proposes</h2><p>You tell the assistant what you need. It searches the live web and asks to buy specific products. It can only <em>request</em> a purchase: it cannot spend money and it cannot set a price.</p></div></li>
         <li><span class="step-no" aria-hidden="true">2</span><div><h2>Policy checks</h2><p>Before PayPal is ever called, a rule engine checks the request against your mandate. A failed check blocks it and shows exactly which rule said no.</p></div></li>
@@ -173,17 +184,28 @@
 
   <!-- ============================================================ dialogs -->
   <dialog id="dlg-edit" aria-labelledby="edit-title">
-    <form method="dialog" id="form-edit">
+    <form method="dialog" id="form-edit" novalidate>
       <h3 id="edit-title">Edit mandate</h3>
-      <label>Name <input name="name" maxlength="60" required></label>
-      <label>Total budget (USD) <input name="budget" type="number" min="1" max="10000" step="1" required></label>
-      <label>Per-purchase cap (USD) <input name="cap" type="number" min="1" max="10000" step="1" required></label>
-      <label>Max purchase requests per hour <input name="pace" type="number" min="1" max="100" step="1" placeholder="Unlimited"></label>
-      <label>Mandate expires (optional) <input name="expires" type="date"></label>
-      <label>Daily limit (USD, optional) <input name="daily" type="number" min="1" max="10000" step="1" placeholder="None"></label>
-      <label>Blocked sellers <textarea name="blocked" rows="2" placeholder="One domain per line, e.g. example.com"></textarea></label>
-      <label>Only allow these sellers (optional) <textarea name="allowed" rows="2" placeholder="Leave empty to allow any seller"></textarea></label>
-      <fieldset><legend>Allowed categories</legend><div id="edit-cats" class="cat-boxes"></div></fieldset>
+      <p class="muted dlg-intro" id="edit-intro" hidden>Choose how much the assistant may spend and what it may buy. These are your numbers: nothing is pre-filled. You can change them later; making them bigger will ask you to confirm.</p>
+      <label>Name <input name="name" maxlength="60" placeholder="e.g. Home office"></label>
+      <div class="field-pair">
+        <label>Total budget (USD) <input name="budget" type="number" inputmode="decimal" min="1" max="10000" step="1" placeholder="e.g. 250" required></label>
+        <label>Per-purchase cap (USD) <input name="cap" type="number" inputmode="decimal" min="1" max="10000" step="1" placeholder="e.g. 80" required></label>
+      </div>
+      <fieldset class="cat-field">
+        <legend>Allowed categories</legend>
+        <div id="edit-cats" class="cat-boxes"></div>
+        <p class="cat-tools"><button class="text-btn" id="edit-cats-all" type="button">Select all</button><button class="text-btn" id="edit-cats-none" type="button">Clear</button></p>
+      </fieldset>
+      <p class="summary" id="edit-summary" role="status" aria-live="polite" hidden></p>
+      <details class="more-box" id="edit-more">
+        <summary>More controls <span class="muted">(optional)</span></summary>
+        <label>Max purchase requests per hour <input name="pace" type="number" min="1" max="100" step="1" placeholder="Unlimited"></label>
+        <label>Mandate expires <input name="expires" type="date"></label>
+        <label>Daily limit (USD) <input name="daily" type="number" min="1" max="10000" step="1" placeholder="None"></label>
+        <label>Blocked sellers <textarea name="blocked" rows="2" placeholder="One domain per line, e.g. example.com"></textarea></label>
+        <label>Only allow these sellers <textarea name="allowed" rows="2" placeholder="Leave empty to allow any seller"></textarea></label>
+      </details>
       <div class="notice warn" id="edit-confirm" hidden>
         <p><strong>These changes give the assistant more spending power.</strong></p>
         <ul id="edit-changes"></ul>
@@ -191,7 +213,7 @@
       </div>
       <p class="error" id="edit-error" hidden></p>
       <div class="dlg-actions">
-        <button class="btn" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn" id="edit-cancel" value="cancel" formnovalidate>Cancel</button>
         <button class="btn positive" id="edit-save" value="save">Save mandate</button>
       </div>
     </form>
@@ -238,6 +260,24 @@
         <button class="btn primary" id="confirm-go" type="submit" disabled>Confirm amount</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="dlg-tour" class="tour" aria-labelledby="tour-title" aria-describedby="tour-text">
+    <div class="tour-art" id="tour-art" aria-hidden="true"></div>
+    <div class="tour-body" id="tour-body" aria-live="polite">
+      <p class="eyebrow tour-step" id="tour-step"></p>
+      <h3 id="tour-title" tabindex="-1"></h3>
+      <p id="tour-text"></p>
+      <ul class="tour-points" id="tour-points"></ul>
+    </div>
+    <div class="tour-foot">
+      <button class="text-btn" id="tour-skip" type="button">Skip tour</button>
+      <div class="tour-dots" id="tour-dots" role="group" aria-label="Tour steps"></div>
+      <div class="tour-nav">
+        <button class="btn" id="tour-back" type="button">Back</button>
+        <button class="btn primary" id="tour-next" type="button">Next</button>
+      </div>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

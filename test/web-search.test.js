@@ -238,6 +238,8 @@ test('a model turn with several searches runs them concurrently and returns resu
   const { ensureSession } = await import('../src/purchases.js');
   const { runToolBatch } = await import('../src/tools.js');
   const sid = await ensureSession();
+  const { setUpMandate } = await import('../src/purchases.js');
+  await setUpMandate(sid, { budget_cents: 30000, per_item_cap_cents: 12000, categories: ['office', 'electronics', 'home'] });
   const out = await runToolBatch(sid, [
     { name: 'search_products', input: { query: 'batch one' } },
     { name: 'get_mandate', input: {} },

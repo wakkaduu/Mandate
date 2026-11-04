@@ -3,12 +3,11 @@
 // allow or refuse). The list is deliberately short so the mandate editor stays readable.
 export const CATEGORIES = ['electronics', 'office', 'furniture', 'home', 'kitchen', 'books', 'clothing', 'sports', 'toys', 'health', 'other'];
 
-export const DEFAULT_MANDATE = {
-  name: 'Home office refresh',
-  budget_cents: 30000,
-  per_item_cap_cents: 12000,
-  categories: ['office', 'electronics', 'home'],
-  max_per_hour: 6,
+// A mandate has NO built-in amount. The owner chooses every figure (budget, per-purchase cap, categories) before
+// anything can be searched or bought. Only these non-money starting values are suggested in the setup form.
+export const MANDATE_DEFAULTS = {
+  name: 'My mandate',
+  max_per_hour: 6,   // purchase requests per hour; a safety default, the owner can change or remove it
 };
 
 // The SERVER decides a product's category (from the product page's own title/category), never the chat model:

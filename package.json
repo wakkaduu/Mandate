@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Spend rails for AI shopping agents - every purchase is policy-checked, then settled through PayPal.",
   "type": "module",
+  "author": "Sav",
   "license": "MIT",
   "private": true,
   "engines": {

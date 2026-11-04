@@ -20,10 +20,17 @@ export async function boot() {
   return { server, base, close: () => new Promise((r) => server.close(r)) };
 }
 
+/**
+ * The mandate most tests run under. The app has NO built-in budget: a new session must be set up by its owner, so the
+ * test client does that on first use (pass { setup: false } to get a raw, never-configured session).
+ */
+export const TEST_MANDATE = { name: 'Home office refresh', budget_cents: 30000, per_item_cap_cents: 12000, categories: ['office', 'electronics', 'home'], max_per_hour: 6 };
+
 /** Minimal cookie-jar client. */
-export function client(base) {
+export function client(base, { setup = true } = {}) {
   let cookie = '';
-  async function call(method, path, body, headers = {}) {
+  let ready = !setup;
+  async function send(method, path, body, headers = {}) {
     const res = await fetch(base + path, {
       method,
       headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { cookie } : {}), ...headers },
@@ -34,6 +41,15 @@ export function client(base) {
     const text = await res.text();
     let json; try { json = JSON.parse(text); } catch { json = text; }
     return { status: res.status, body: json };
+  }
+  async function call(method, path, body, headers) {
+    if (!ready) {
+      ready = true;
+      await send('GET', '/api/state'); // creates the session
+      const r = await send('POST', '/api/mandate/setup', TEST_MANDATE);
+      if (r.status !== 200) throw new Error(`test mandate setup failed: ${JSON.stringify(r.body)}`);
+    }
+    return send(method, path, body, headers);
   }
   return {
     sid: () => cookie.split('=')[1],

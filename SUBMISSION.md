@@ -1,5 +1,7 @@
 # Mandate - Devpost submission
 
+**Created by:** Sav (solo entry), developed with Claude Code as an AI coding assistant
+
 **Tagline:** Spend rails for AI shopping agents - policy-checked, PayPal-approved, fully audited.
 
 **Links:** Repo: https://github.com/wakkaduu/Mandate - Live demo: `<Render URL>` - Video: `<YouTube URL>` (see DEMO_SCRIPT.md)

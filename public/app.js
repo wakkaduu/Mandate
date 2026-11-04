@@ -237,7 +237,7 @@ let approvalsSig = '';
 const seenApprovals = new Set();
 let approvalsFirst = true;
 
-const CHECKS = [['MANDATE_EXPIRED', 'Active'], ['CATEGORY_NOT_ALLOWED', 'Category'], ['DUPLICATE', 'Not a duplicate'], ['OVER_ITEM_CAP', 'Under cap'], ['OVER_BUDGET', 'Within budget'], ['OVER_PACE', 'Pace']];
+const CHECKS = [[['MANDATE_EXPIRED'], 'Active'], [['CATEGORY_NOT_ALLOWED'], 'Category'], [['SELLER_BLOCKED', 'SELLER_NOT_ALLOWED'], 'Seller'], [['DUPLICATE'], 'Not a duplicate'], [['OVER_ITEM_CAP'], 'Under cap'], [['OVER_BUDGET'], 'Within budget'], [['OVER_DAILY'], 'Daily limit'], [['OVER_PACE'], 'Pace']];
 const splitReason = (reason) => {
   const m = /^([A-Z_]+): (.*)$/.exec(reason ?? '');
   return m ? { code: m[1], text: m[2] } : { code: null, text: reason ?? '' };
@@ -248,7 +248,7 @@ function policyChecks(p) {
   let failed = false;
   return h('div', { class: 'checks', 'aria-label': 'Policy checks' }, CHECKS.map(([code, label]) => {
     if (failed) return h('span', { class: 'check skip' }, `- ${label}`);
-    if (code === failCode) { failed = true; return h('span', { class: 'check fail' }, `✗ ${label}`); }
+    if (code.includes(failCode)) { failed = true; return h('span', { class: 'check fail' }, `✗ ${label}`); }
     return h('span', { class: 'check' }, `✓ ${label}`);
   }));
 }
@@ -265,7 +265,7 @@ function buildMandate() {
   mv.bar = h('div', { class: 'bar', role: 'img' }, mv.spent, mv.held);
   mv.legendSpent = h('span', {}, h('b', { class: 'sw-spent' }), h('span'));
   mv.legendHeld = h('span', {}, h('b', { class: 'sw-held' }), h('span'));
-  mv.cap = h('span'); mv.pace = h('span'); mv.exp = h('span');
+  mv.cap = h('span'); mv.day = h('span'); mv.pace = h('span'); mv.exp = h('span'); mv.sellers = h('span');
   mv.cats = h('span', { class: 'cats' });
   $('mandate').replaceChildren(
     h('div', { class: 'st-main' },
@@ -276,9 +276,11 @@ function buildMandate() {
       h('div', { class: 'legend' }, mv.legendSpent, mv.legendHeld)),
     h('dl', { class: 'terms' },
       term('Per-purchase limit', mv.cap),
+      term('Daily limit', mv.day),
       term('Pace', mv.pace),
       term('Expires', mv.exp),
       term('Categories', mv.cats),
+      term('Sellers', mv.sellers),
       term('Settlement', 'PayPal, human-approved')),
   );
 }
@@ -298,6 +300,8 @@ function renderMandate(m) {
   mv.legendSpent.lastChild.textContent = `Spent ${usd(m.captured_cents)}`;
   mv.legendHeld.lastChild.textContent = `Awaiting approval ${usd(held)}`;
   mv.cap.textContent = usd(m.per_item_cap_cents);
+  mv.day.textContent = m.max_per_day_cents ? `${usd(m.max_per_day_cents)} (${usd(m.spent_today_cents)} used)` : 'None';
+  mv.sellers.textContent = m.allowed_sellers.length ? `Only ${m.allowed_sellers.length} allowed${m.blocked_sellers.length ? `, ${m.blocked_sellers.length} blocked` : ''}` : (m.blocked_sellers.length ? `${m.blocked_sellers.length} blocked` : 'Any');
   mv.pace.textContent = m.max_per_hour ? `${m.max_per_hour} requests / hour` : 'Unlimited';
   mv.exp.textContent = m.expired ? 'Expired' : (m.expires_at ? new Date(m.expires_at).toLocaleDateString() : 'Never');
   mv.exp.classList.toggle('bad-text', Boolean(m.expired));
@@ -390,6 +394,46 @@ function renderApprovals(purchases) {
   root.replaceChildren(...kids);
 }
 
+// ------------------------------------------------------------------ limits the assistant suggested (a human applies them)
+let proposalSig = '';
+let reviewing = null;
+
+function renderProposals(list) {
+  const sig = JSON.stringify(list.map((p) => [p.id, p.summary]));
+  if (sig === proposalSig) return;
+  proposalSig = sig;
+  const box = $('proposals');
+  box.hidden = list.length === 0;
+  box.replaceChildren(...list.map((p) => h('article', { class: 'suggestion' },
+    h('p', { class: 'eyebrow' }, 'Suggested by the assistant'),
+    h('p', {}, p.reason),
+    h('ul', { class: 'change-list' }, p.summary.map((line) => h('li', {}, line))),
+    h('div', { class: 'req-actions' },
+      h('button', { class: 'btn small primary', type: 'button', onclick: () => openProposal(p) }, 'Review and apply'),
+      h('button', { class: 'btn small', type: 'button', onclick: () => simple(`/api/proposals/${p.id}/dismiss`, 'Suggestion dismissed. Your limits are unchanged.') }, 'Dismiss')))));
+}
+
+function openProposal(p) {
+  reviewing = p;
+  $('proposal-reason').textContent = p.reason;
+  $('proposal-changes').replaceChildren(...p.summary.map((line) => h('li', {}, line)));
+  $('proposal-ack').checked = false;
+  $('proposal-go').disabled = true;
+  $('proposal-error').hidden = true;
+  $('dlg-proposal').showModal();
+}
+
+async function applyReviewed() {
+  if (!reviewing) return;
+  $('proposal-go').disabled = true;
+  try {
+    await api(`/api/proposals/${reviewing.id}/apply`, { method: 'POST', body: { acknowledged: $('proposal-ack').checked } });
+    $('dlg-proposal').close();
+    toast('Your limits were updated.', false, null, true);
+    await refresh();
+  } catch (e) { $('proposal-error').textContent = e.message; $('proposal-error').hidden = false; $('proposal-go').disabled = !$('proposal-ack').checked; }
+}
+
 // ------------------------------------------------------------------ ledger (AG Grid), created the first time the page opens
 const statusRenderer = (params) => h('span', { class: `status ${params.value}` }, params.value);
 const timeFmt = (p) => new Date(p.value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -456,6 +500,7 @@ function ensureGrids() {
 function render(s) {
   state = s;
   renderMandate(s.mandate);
+  renderProposals(s.proposals ?? []);
   if (!chatBusy) renderMessages(s.messages); // keep the progress bubble while the assistant works
   renderApprovals(s.purchases);
   gridP?.setGridOption('rowData', s.purchases);
@@ -506,6 +551,7 @@ async function send(text) {
 
 // ------------------------------------------------------------------ mandate editor (increases need an explicit confirmation)
 let editNeedsConfirm = false;
+const domainLines = (text) => String(text).split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
 
 function resetEditConfirm() {
   editNeedsConfirm = false;
@@ -523,6 +569,9 @@ function openEditor() {
   f.elements.cap.value = m.per_item_cap_cents / 100;
   f.elements.pace.value = m.max_per_hour ?? '';
   f.elements.expires.value = m.expires_at ? new Date(m.expires_at).toISOString().slice(0, 10) : '';
+  f.elements.daily.value = m.max_per_day_cents ? m.max_per_day_cents / 100 : '';
+  f.elements.blocked.value = m.blocked_sellers.join('\n');
+  f.elements.allowed.value = m.allowed_sellers.join('\n');
   $('edit-cats').replaceChildren(...state.categories.map((c) => h('label', {}, h('input', { type: 'checkbox', value: c, checked: m.categories.includes(c) }), c)));
   $('edit-error').hidden = true;
   resetEditConfirm();
@@ -541,6 +590,9 @@ async function saveEditor(ev) {
       max_per_hour: f.elements.pace.value === '' ? null : Number(f.elements.pace.value),
       // end of the chosen day, local time
       expires_at: f.elements.expires.value === '' ? null : new Date(`${f.elements.expires.value}T23:59:59`).getTime(),
+      max_per_day_cents: f.elements.daily.value === '' ? null : Math.round(Number(f.elements.daily.value) * 100),
+      blocked_sellers: domainLines(f.elements.blocked.value),
+      allowed_sellers: domainLines(f.elements.allowed.value),
       confirm_increase: editNeedsConfirm && $('edit-ack').checked,
     } });
     $('dlg-edit').close();
@@ -566,7 +618,7 @@ async function saveEditor(ev) {
 function renderResults(offers, skipped) {
   const box = $('search-results');
   if (!offers.length) {
-    box.replaceChildren(h('p', { class: 'empty' }, 'No product pages with a readable price turned up for that. Try a more specific product name.'));
+    box.replaceChildren(h('p', { class: 'empty' }, 'No product page with a readable price turned up for that. Large marketplaces often hide prices from automated checks, so try a more specific product name (for example "wireless vertical mouse") or one of the examples above.'));
     return;
   }
   const rows = offers.map((o, i) => h('article', { class: `offer enter${o.fits_mandate ? '' : ' outside'}`, style: `--i:${i}` },
@@ -626,6 +678,11 @@ function renderChips() {
   $('chips').hidden = !on;
   $('chips').replaceChildren(...(on ? [h('span', { class: 'suggest-label' }, 'Try:'), ...SUGGESTIONS.map((s) => h('button', { type: 'button', onclick: () => send(s) }, s))] : []));
 }
+const SEARCH_EXAMPLES = ['ergonomic office chair', 'felt desk mat', 'ergonomic vertical mouse', 'stainless steel water bottle', 'ceramic coffee mug'];
+function renderSearchExamples() {
+  $('search-examples').replaceChildren(h('span', { class: 'suggest-label' }, 'Examples that usually work:'),
+    ...SEARCH_EXAMPLES.map((q) => h('button', { type: 'button', onclick: () => { $('search-input').value = q; $('search-form').requestSubmit(); } }, q)));
+}
 const syncHint = () => { const p = getPrefs(); $('how-hint').hidden = !(p.showHint && !p.hintDismissed); };
 
 async function boot() {
@@ -657,6 +714,7 @@ async function boot() {
   $('search-off').hidden = Boolean(cfg.webSearch);
 
   renderChips();
+  renderSearchExamples();
   syncHint();
   onPrefs((p, key) => {
     if (key === 'showChips' || key === '*') renderChips();
@@ -679,6 +737,10 @@ async function boot() {
   $('form-edit').addEventListener('input', (e) => { if (editNeedsConfirm && e.target.id !== 'edit-ack') resetEditConfirm(); });
   $('edit-ack').addEventListener('change', () => { $('edit-save').disabled = !$('edit-ack').checked; });
 
+  $('proposal-ack').addEventListener('change', () => { $('proposal-go').disabled = !$('proposal-ack').checked; });
+  $('proposal-go').addEventListener('click', applyReviewed);
+  $('proposal-cancel').addEventListener('click', () => $('dlg-proposal').close());
+
   $('refund-ack').addEventListener('change', () => { if ($('refund-go').dataset.step === 'start') $('refund-go').disabled = !$('refund-ack').checked; });
   $('refund-go').addEventListener('click', refundGo);
   $('refund-cancel').addEventListener('click', () => $('dlg-refund').close());
@@ -697,8 +759,13 @@ async function boot() {
   if (document.querySelector('.page:not([hidden])')?.dataset.page === 'ledger') ensureGrids();
 
   await refresh();
-  // Picks up webhook-driven changes (e.g. capture completed server-side) without a manual reload.
-  setInterval(() => { if (!document.hidden && !chatBusy) refresh(); }, 5000);
+  // Picks up webhook-driven changes (e.g. capture completed server-side) without a manual reload: faster while something is in flight.
+  const poll = async () => {
+    if (!document.hidden && !chatBusy) await refresh();
+    const inFlight = state?.purchases.some((p) => ['pending', 'capturing', 'reserving'].includes(p.status));
+    setTimeout(poll, inFlight ? 2000 : 5000);
+  };
+  setTimeout(poll, 4000);
 }
 
 boot().catch((e) => { console.error(e); toast('Failed to start the app.', true); });

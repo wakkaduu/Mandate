@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS mandates (
   categories TEXT NOT NULL,            -- JSON array
   expires_at INTEGER,                  -- epoch ms, NULL = never expires
   max_per_hour INTEGER DEFAULT 6,      -- purchase-request pace limit, NULL = unlimited
+  max_per_day_cents INTEGER,           -- rolling 24h spending limit, NULL = none
+  blocked_sellers TEXT NOT NULL DEFAULT '[]',  -- JSON array of domains the agent may never buy from
+  allowed_sellers TEXT NOT NULL DEFAULT '[]',  -- JSON array; when non-empty, ONLY these domains
   updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS purchases (
@@ -58,6 +61,17 @@ CREATE TABLE IF NOT EXISTS offers (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mandate_proposals (   -- limits the assistant SUGGESTED; only a human can apply them
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  changes TEXT NOT NULL,               -- JSON: what would change
+  summary TEXT NOT NULL,               -- JSON array of human-readable lines
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,                -- open | applied | dismissed | superseded
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_proposals_session ON mandate_proposals(session_id, created_at);
 CREATE TABLE IF NOT EXISTS confirmations (   -- two-step confirmations for irreversible actions (refunds)
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -138,6 +152,9 @@ async function init() {
     const add = async (table, col, ddl) => { if (!(await cols(table)).includes(col)) await client.execute(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); };
     await add('mandates', 'expires_at', 'INTEGER');
     await add('mandates', 'max_per_hour', 'INTEGER DEFAULT 6');
+    await add('mandates', 'max_per_day_cents', 'INTEGER');
+    await add('mandates', 'blocked_sellers', "TEXT NOT NULL DEFAULT '[]'");
+    await add('mandates', 'allowed_sellers', "TEXT NOT NULL DEFAULT '[]'");
     await add('sessions', 'mcp_token_hash', 'TEXT');
     await add('messages', 'trace', 'TEXT');
     await add('purchases', 'product_url', 'TEXT');

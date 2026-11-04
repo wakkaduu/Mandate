@@ -18,6 +18,8 @@ You set a mandate: a budget, a per-purchase cap, allowed categories, a pace limi
 - **Allowed** requests become real PayPal sandbox orders, and a PayPal button appears for you to approve. The server captures, verifies the amount, and your budget bar updates.
 - **Blocked** requests (over the cap, over budget, wrong category, duplicate) never reach PayPal. The agent explains why and offers an in-policy alternative.
 
+Beyond a budget, the mandate has a rolling daily limit and seller controls (block a domain, or allow only a list). The assistant can *suggest* a change to your limits but never apply one: you review and apply it. Finance can export the ledger and audit trail as CSV.
+
 Every reply has an expandable "agent activity" trace, and Mandate is also an **MCP server**: connect Claude Code (or any MCP agent) and it shops through the same policy gate, with you approving each purchase in PayPal.
 
 Everything lands in an AG Grid ledger with a complete audit trail: policy decisions, order ids, capture ids, webhook confirmations, refunds. Declined cards, cancelled approvals, expired orders and double clicks are all handled, and any captured purchase can be refunded with one click.

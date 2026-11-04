@@ -108,7 +108,7 @@ test('live-web loop: search -> server-verified offers -> propose through the pol
 
   const agentCalls = seen.filter((s) => !s.json.tools?.[0]?.google_search);
   assert.equal(seen[0].model, 'busy-model');                       // tried first, 503, then fell back
-  assert.deepEqual(agentCalls.filter((s) => s.model === 'good-model')[0].json.tools[0].functionDeclarations.map((d) => d.name), ['search_products', 'propose_purchase', 'get_mandate']);
+  assert.deepEqual(agentCalls.filter((s) => s.model === 'good-model')[0].json.tools[0].functionDeclarations.map((d) => d.name), ['search_products', 'propose_purchase', 'suggest_mandate_change', 'get_mandate']);
   const searchCalls = seen.filter((s) => s.json.tools?.[0]?.google_search);
   assert.equal(searchCalls.at(-1).model, 'good-model');            // grounded search has its own cooldown scope: it retried busy-model, then fell back
   const third = agentCalls.filter((s) => s.model === 'good-model')[1].json.contents;

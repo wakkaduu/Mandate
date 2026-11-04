@@ -58,6 +58,8 @@ const oldRefund = await call('POST', '/api/purchases/00000000-0000-0000-0000-000
 ok('the one-step refund endpoint is closed', oldRefund.status === 409 && oldRefund.json?.error?.code === 'CONFIRMATION_REQUIRED', oldRefund.json?.error?.code);
 const noReq = await call('POST', '/api/purchases/00000000-0000-0000-0000-000000000000/refund/confirm', { token: 'x' });
 ok('refund confirm without a request is refused', [404, 409].includes(noReq.status), `status ${noReq.status}`);
+const exp = await fetch(`${base}/api/export?kind=purchases&format=csv`, { headers: { cookie } });
+ok('ledger export returns CSV', exp.status === 200 && /text\/csv/.test(exp.headers.get('content-type') ?? ''), `status ${exp.status}`);
 const page = await fetch(`${base}/`);
 ok('page is served with a CSP nonce and security headers', /nonce-/.test(page.headers.get('content-security-policy') ?? '') && page.headers.get('x-frame-options') === 'DENY' && (await page.text()).includes('csp-nonce'));
 const reset = await call('POST', '/api/reset'); // closed on production deployments, open for local development

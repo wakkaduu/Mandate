@@ -68,6 +68,7 @@
 
       <div class="workbench">
         <section class="work-main" aria-labelledby="h-approvals">
+          <div id="proposals" class="proposals" hidden></div>
           <header class="block-head"><h2 id="h-approvals">Awaiting your approval</h2><span class="count" id="approvals-count"></span></header>
           <div id="approvals" class="req-list" aria-busy="true">
             <div class="req skeleton" aria-hidden="true"><i class="sk w60"></i><i class="sk w40"></i><i class="sk w80"></i></div>
@@ -96,6 +97,7 @@
           <label class="field"><span>Max price (USD)</span><input id="search-max" type="number" min="1" max="10000" step="1" placeholder="Any"></label>
           <button class="btn primary" id="search-btn" type="submit">Search</button>
         </form>
+        <div class="suggest" id="search-examples"></div>
         <div id="search-results" class="offer-list" aria-live="polite"></div>
       </section>
       <div class="notice" id="search-off" hidden>
@@ -107,9 +109,15 @@
 
     <!-- ---------------------------------------------------------- Ledger -->
     <section class="page" id="page-ledger" data-page="ledger" hidden aria-labelledby="page-title">
-      <div class="tabs" role="tablist" aria-label="Ledger views">
-        <button role="tab" class="tab active" data-tab="purchases" aria-selected="true" type="button">Purchases</button>
-        <button role="tab" class="tab" data-tab="audit" aria-selected="false" type="button">Audit trail</button>
+      <div class="ledger-bar">
+        <div class="tabs" role="tablist" aria-label="Ledger views">
+          <button role="tab" class="tab active" data-tab="purchases" aria-selected="true" type="button">Purchases</button>
+          <button role="tab" class="tab" data-tab="audit" aria-selected="false" type="button">Audit trail</button>
+        </div>
+        <div class="export-btns">
+          <a class="btn small" id="export-purchases" href="/api/export?kind=purchases&amp;format=csv" download>Export purchases (CSV)</a>
+          <a class="btn small" id="export-audit" href="/api/export?kind=audit&amp;format=csv" download>Export audit trail (CSV)</a>
+        </div>
       </div>
       <div id="grid-purchases" class="grid-box" role="region" aria-label="Purchases ledger"></div>
       <div id="grid-audit" class="grid-box" role="region" aria-label="Audit trail" hidden></div>
@@ -131,8 +139,10 @@
             <li><b>Active</b> The mandate has not expired.</li>
             <li><b>Category</b> The product's category is one you allowed.</li>
             <li><b>Not a duplicate</b> You are not already buying the same item.</li>
+            <li><b>Seller</b> The seller is not blocked, and is on your allowed list if you set one.</li>
             <li><b>Under cap</b> The price is within the per-purchase cap.</li>
             <li><b>Within budget</b> Enough budget is left, counting orders still waiting for approval.</li>
+            <li><b>Daily limit</b> Today's spending (last 24 hours) stays under your daily limit, if you set one.</li>
             <li><b>Pace</b> The assistant has not asked too often this hour.</li>
           </ul>
         </section>
@@ -143,8 +153,8 @@
         <section>
           <header class="block-head"><h2>What the assistant can and cannot do</h2></header>
           <div class="can-grid">
-            <div><h3>Can</h3><ul class="plain-list tick"><li>Search for products</li><li>Read your mandate</li><li>Request a purchase</li></ul></div>
-            <div><h3>Cannot</h3><ul class="plain-list cross"><li>Spend or move money</li><li>Set or change a price</li><li>Approve its own orders</li><li>Raise its own limits</li></ul></div>
+            <div><h3>Can</h3><ul class="plain-list tick"><li>Search for products</li><li>Read your mandate</li><li>Request a purchase</li><li>Suggest a change to your limits (you decide)</li></ul></div>
+            <div><h3>Cannot</h3><ul class="plain-list cross"><li>Spend or move money</li><li>Set or change a price</li><li>Approve its own orders</li><li>Apply a change to its own limits</li></ul></div>
           </div>
         </section>
       </div>
@@ -170,6 +180,9 @@
       <label>Per-purchase cap (USD) <input name="cap" type="number" min="1" max="10000" step="1" required></label>
       <label>Max purchase requests per hour <input name="pace" type="number" min="1" max="100" step="1" placeholder="Unlimited"></label>
       <label>Mandate expires (optional) <input name="expires" type="date"></label>
+      <label>Daily limit (USD, optional) <input name="daily" type="number" min="1" max="10000" step="1" placeholder="None"></label>
+      <label>Blocked sellers <textarea name="blocked" rows="2" placeholder="One domain per line, e.g. example.com"></textarea></label>
+      <label>Only allow these sellers (optional) <textarea name="allowed" rows="2" placeholder="Leave empty to allow any seller"></textarea></label>
       <fieldset><legend>Allowed categories</legend><div id="edit-cats" class="cat-boxes"></div></fieldset>
       <div class="notice warn" id="edit-confirm" hidden>
         <p><strong>These changes give the assistant more spending power.</strong></p>
@@ -182,6 +195,21 @@
         <button class="btn positive" id="edit-save" value="save">Save mandate</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="dlg-proposal" aria-labelledby="proposal-title">
+    <div class="dlg-body">
+      <h3 id="proposal-title">Apply the assistant's suggestion?</h3>
+      <p class="muted" id="proposal-reason"></p>
+      <ul class="change-list" id="proposal-changes"></ul>
+      <p class="notice warn">The assistant cannot change your limits. Nothing changes unless you apply this.</p>
+      <label class="check-row"><input type="checkbox" id="proposal-ack"> I have read the changes and want to apply them</label>
+      <p class="error" id="proposal-error" hidden></p>
+      <div class="dlg-actions">
+        <button class="btn" id="proposal-cancel" type="button">Cancel</button>
+        <button class="btn positive" id="proposal-go" type="button" disabled>Apply changes</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="dlg-refund" aria-labelledby="refund-title">

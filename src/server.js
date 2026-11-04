@@ -8,6 +8,7 @@ import { openDb, db, closeDb } from './db.js';
 import * as svc from './purchases.js';
 import { AppError } from './purchases.js';
 import { runTool } from './tools.js';
+import { exportLedger, listOpenProposals, applyProposal, dismissProposal } from './ledger-tools.js';
 import { chat, agentMode, agentModel } from './agent.js';
 import { verifyWebhook } from './paypal.js';
 import { createMockPayPal } from './mock-paypal.js';
@@ -147,10 +148,10 @@ export function createApp() {
   });
 
   app.get('/api/state', wrap(async (req, res) => {
-    const [mandate, purchases, audit, messages] = await Promise.all([
-      svc.getMandate(req.sid), svc.listPurchases(req.sid), svc.listAudit(req.sid), svc.listMessages(req.sid),
+    const [mandate, purchases, audit, messages, proposals] = await Promise.all([
+      svc.getMandate(req.sid), svc.listPurchases(req.sid), svc.listAudit(req.sid), svc.listMessages(req.sid), listOpenProposals(req.sid),
     ]);
-    res.json({ mandate, purchases, audit, messages, categories: svc.listCategories() });
+    res.json({ mandate, purchases, audit, messages, proposals, categories: svc.listCategories() });
   }));
 
   // ---- connect external agents (MCP)
@@ -163,7 +164,8 @@ export function createApp() {
     const b = req.body ?? {};
     res.json({ mandate: await svc.updateMandate(req.sid, {
       name: b.name, budget_cents: b.budget_cents, per_item_cap_cents: b.per_item_cap_cents, categories: b.categories,
-      expires_at: b.expires_at, max_per_hour: b.max_per_hour, confirm_increase: b.confirm_increase === true,
+      expires_at: b.expires_at, max_per_hour: b.max_per_hour, max_per_day_cents: b.max_per_day_cents,
+      blocked_sellers: b.blocked_sellers, allowed_sellers: b.allowed_sellers, confirm_increase: b.confirm_increase === true,
     }) });
   }));
 
@@ -181,6 +183,18 @@ export function createApp() {
       busy.delete(req.sid);
     }
   }));
+
+  // Export for finance / compliance: the caller's own ledger or audit trail as CSV or JSON.
+  const exportLimit = limiter(30, 60_000);
+  app.get('/api/export', wrap(async (req, res) => {
+    if (!exportLimit(req.sid)) throw new AppError(429, 'RATE_LIMITED', 'Too many exports - wait a moment.');
+    const out = await exportLedger(req.sid, { kind: String(req.query.kind ?? 'purchases'), format: String(req.query.format ?? 'csv') });
+    res.set({ 'Content-Type': out.type, 'Content-Disposition': `attachment; filename="${out.filename}"`, 'Cache-Control': 'no-store' }).send(out.body);
+  }));
+
+  // Limits the assistant suggested: only the human applies or dismisses them (applying needs an explicit acknowledgement).
+  app.post('/api/proposals/:id/apply', wrap(async (req, res) => res.json(await applyProposal(req.sid, req.params.id, req.body?.acknowledged))));
+  app.post('/api/proposals/:id/dismiss', wrap(async (req, res) => res.json(await dismissProposal(req.sid, req.params.id))));
 
   // Manual path: the human searches the web themselves (works even when the AI model is down) and asks for a
   // purchase. It goes through exactly the same offers, policy gate and PayPal approval as an agent's request.

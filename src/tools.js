@@ -3,6 +3,7 @@
 // that a human must approve.
 import { proposePurchase, getMandate } from './purchases.js';
 import { evaluate } from './policy.js';
+import { createProposal } from './ledger-tools.js';
 import { searchWeb, SearchUnavailable } from './web/search.js';
 import { config } from './config.js';
 import { CATEGORIES } from './categories.js';
@@ -36,6 +37,23 @@ export const TOOLS = [
     },
   },
   {
+    name: 'suggest_mandate_change',
+    description: 'Suggest a change to the user\'s spending limits (budget, per-purchase cap, daily limit, allowed categories, blocked sellers). You CANNOT change limits: the human reviews your suggestion and decides. Use it only when the user asks to change their limits, or when something they insisted on was blocked by a limit. Always give a short reason.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        budget_usd: { type: 'number', description: 'New total budget in USD' },
+        per_purchase_cap_usd: { type: 'number', description: 'New per-purchase cap in USD' },
+        max_per_day_usd: { type: 'number', description: 'New rolling 24-hour limit in USD' },
+        add_categories: { type: 'array', items: { type: 'string' }, description: `Categories to allow: ${CATEGORIES.join(', ')}` },
+        remove_categories: { type: 'array', items: { type: 'string' }, description: 'Categories to stop allowing' },
+        block_sellers: { type: 'array', items: { type: 'string' }, description: 'Seller domains to block, e.g. example.com' },
+        reason: { type: 'string', description: 'One sentence: why you suggest this' },
+      },
+      required: ['reason'],
+    },
+  },
+  {
     name: 'get_mandate',
     description: 'Get the spending mandate limits and the remaining budget.',
     input_schema: { type: 'object', properties: {} },
@@ -44,7 +62,7 @@ export const TOOLS = [
 
 const offerView = (o, m) => {
   // Same policy engine the purchase gate uses, run for qty 1 so the model can pick in-policy options up front.
-  const v = evaluate(m, o, 1, { committed_cents: m.committed_cents, open_same_product: false });
+  const v = evaluate(m, o, 1, { committed_cents: m.committed_cents, day_committed_cents: m.spent_today_cents, open_same_product: false });
   return {
     offer_id: o.id, title: o.name, merchant: o.merchant, category: o.category, price_usd: o.price_cents / 100, url: o.url, price_verified: o.price_verified,
     fits_mandate: v.ok, ...(v.ok ? {} : { mandate_issue: `${v.code}: ${v.reason}` }),
@@ -104,12 +122,21 @@ export async function runTool(sid, name, input = {}) {
         blocked: res,
       };
     }
+    if (name === 'suggest_mandate_change') {
+      const p = await createProposal(sid, input);
+      return {
+        result: { status: 'suggested', summary: p.summary, note: 'Nothing changed. The human must review and apply this suggestion; you cannot change the mandate.' },
+        step: { tool: name, ok: true, text: `Suggested a change to the limits (you decide): ${p.summary.join('; ')}` },
+      };
+    }
     if (name === 'get_mandate') {
       const m = await getMandate(sid);
       return {
         result: {
           budget_usd: m.budget_cents / 100, per_purchase_cap_usd: m.per_item_cap_cents / 100, allowed_categories: m.categories,
           remaining_usd: m.remaining_cents / 100, max_requests_per_hour: m.max_per_hour, expired: m.expired,
+          max_per_day_usd: m.max_per_day_cents === null ? null : m.max_per_day_cents / 100, spent_last_24h_usd: m.spent_today_cents / 100,
+          blocked_sellers: m.blocked_sellers, allowed_sellers: m.allowed_sellers,
         },
         step: { tool: name, ok: true, text: `Checked the mandate: ${money(m.remaining_cents)} remaining` },
       };

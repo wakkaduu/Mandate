@@ -4,6 +4,7 @@ import { randomUUID, createHash, randomBytes, timingSafeEqual } from 'node:crypt
 import { db, tx } from './db.js';
 import { DEFAULT_MANDATE, CATEGORIES } from './categories.js';
 import { getOffer } from './offers.js';
+import { normalizeSellerList } from './sellers.js';
 import { COMMITTED_STATUSES, evaluate, centsToValue, money, MAX_QTY } from './policy.js';
 import * as paypal from './paypal.js';
 import { config } from './config.js';
@@ -56,12 +57,19 @@ export async function resetSession(sid) {
     await t.run('DELETE FROM purchases WHERE session_id = ?', [sid]);
     await t.run('DELETE FROM audit WHERE session_id = ?', [sid]);
     await t.run('DELETE FROM messages WHERE session_id = ?', [sid]);
-    await t.run('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=NULL, max_per_hour=?, updated_at=? WHERE session_id=?',
+    await t.run('DELETE FROM mandate_proposals WHERE session_id = ?', [sid]);
+    await t.run("UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=NULL, max_per_hour=?, max_per_day_cents=NULL, blocked_sellers='[]', allowed_sellers='[]', updated_at=? WHERE session_id=?",
       [DEFAULT_MANDATE.name, DEFAULT_MANDATE.budget_cents, DEFAULT_MANDATE.per_item_cap_cents,
         JSON.stringify(DEFAULT_MANDATE.categories), DEFAULT_MANDATE.max_per_hour, now(), sid]);
   });
   await audit(sid, null, 'session.reset', 'Demo reset');
   return getMandate(sid);
+}
+
+/** Money committed in the last 24 hours (reserved, awaiting approval, or captured): the basis of the daily limit. */
+async function daySpentCents(d, sid) {
+  return (await d.get(`SELECT COALESCE(SUM(amount_cents),0) AS c FROM purchases WHERE session_id = ? AND created_at > ? AND status IN (${placeholders(COMMITTED)})`,
+    [sid, now() - 24 * 3600_000, ...COMMITTED])).c;
 }
 
 async function committedCents(d, sid) {
@@ -85,6 +93,10 @@ export async function getMandate(sid, exec) {
     categories: JSON.parse(m.categories),
     expires_at: m.expires_at ?? null,
     max_per_hour: m.max_per_hour ?? null,
+    max_per_day_cents: m.max_per_day_cents ?? null,
+    blocked_sellers: JSON.parse(m.blocked_sellers ?? '[]'),
+    allowed_sellers: JSON.parse(m.allowed_sellers ?? '[]'),
+    spent_today_cents: await daySpentCents(d, sid),
     expired: Boolean(m.expires_at && now() > m.expires_at),
     committed_cents: committed,
     captured_cents: captured,
@@ -100,6 +112,9 @@ export async function updateMandate(sid, input) {
   const cats = input.categories === undefined ? cur.categories : input.categories;
   const expires = input.expires_at === undefined ? cur.expires_at : input.expires_at;
   const pace = input.max_per_hour === undefined ? cur.max_per_hour : input.max_per_hour;
+  const day = input.max_per_day_cents === undefined ? cur.max_per_day_cents : input.max_per_day_cents;
+  const blockedIn = normalizeSellerList(input.blocked_sellers === undefined ? cur.blocked_sellers : input.blocked_sellers);
+  const allowedIn = normalizeSellerList(input.allowed_sellers === undefined ? cur.allowed_sellers : input.allowed_sellers);
   if (expires !== null && (!Number.isInteger(expires) || expires < now() || expires > now() + 366 * 86400_000)) {
     throw new AppError(400, 'BAD_INPUT', 'Expiry must be a future date within the next year (or empty for no expiry).');
   }
@@ -109,6 +124,12 @@ export async function updateMandate(sid, input) {
   if (!name) throw new AppError(400, 'BAD_INPUT', 'Mandate name is required.');
   if (!Number.isInteger(budget) || budget < 100 || budget > 1_000_000) throw new AppError(400, 'BAD_INPUT', 'Budget must be between $1.00 and $10,000.00.');
   if (!Number.isInteger(cap) || cap < 100 || cap > budget) throw new AppError(400, 'BAD_INPUT', 'Per-purchase cap must be at least $1.00 and no more than the budget.');
+  if (day !== null && (!Number.isInteger(day) || day < cap || day > 1_000_000)) throw new AppError(400, 'BAD_INPUT', 'The daily limit must be at least the per-purchase cap and at most $10,000.00 (or empty for none).');
+  for (const [label, r] of [['Blocked sellers', blockedIn], ['Allowed sellers', allowedIn]]) {
+    if (r.bad) throw new AppError(400, 'BAD_INPUT', `${label} must be domain names like example.com (problem: ${r.bad}).`);
+  }
+  const blocked = blockedIn.list;
+  const allowed = allowedIn.list;
   const known = new Set(listCategories());
   if (!Array.isArray(cats) || cats.some((c) => !known.has(c))) throw new AppError(400, 'BAD_INPUT', `Categories must be a subset of: ${[...known].join(', ')}.`);
   // Anything that gives the agent MORE spending power is a big decision: the caller must confirm it explicitly.
@@ -119,12 +140,18 @@ export async function updateMandate(sid, input) {
   if (added.length) more.push({ field: 'allowed categories', from: cur.categories.join(', ') || 'none', to: `${[...cur.categories, ...added].join(', ')}` });
   if (cur.max_per_hour !== null && (pace === null || pace > cur.max_per_hour)) more.push({ field: 'purchase pace', from: `${cur.max_per_hour} per hour`, to: pace === null ? 'unlimited' : `${pace} per hour` });
   if (cur.expires_at !== null && (expires === null || expires > cur.expires_at)) more.push({ field: 'expiry', from: new Date(cur.expires_at).toISOString().slice(0, 10), to: expires === null ? 'never' : new Date(expires).toISOString().slice(0, 10) });
+  if (cur.max_per_day_cents !== null && (day === null || day > cur.max_per_day_cents)) more.push({ field: 'daily limit', from: money(cur.max_per_day_cents), to: day === null ? 'none' : money(day) });
+  const unblocked = cur.blocked_sellers.filter((b) => !blocked.includes(b));
+  if (unblocked.length) more.push({ field: 'blocked sellers', from: cur.blocked_sellers.join(', '), to: `unblocked: ${unblocked.join(', ')}` });
+  if (cur.allowed_sellers.length && (!allowed.length || allowed.some((a) => !cur.allowed_sellers.includes(a)))) {
+    more.push({ field: 'allowed sellers', from: cur.allowed_sellers.join(', '), to: allowed.length ? allowed.join(', ') : 'any seller' });
+  }
   if (more.length && input.confirm_increase !== true) {
     throw new AppError(409, 'CONFIRMATION_REQUIRED', 'These changes give the agent more spending power. Confirm them to apply.', { changes: more });
   }
-  await (await db()).run('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=?, max_per_hour=?, updated_at=? WHERE session_id=?',
-    [name, budget, cap, JSON.stringify(cats), expires, pace, now(), sid]);
-  await audit(sid, null, 'mandate.updated', `${more.length ? '[increase confirmed] ' : ''}Budget ${money(budget)}, cap ${money(cap)}, categories: ${cats.join(', ') || 'none'}, pace ${pace ?? 'unlimited'}/h, expires ${expires ? new Date(expires).toISOString().slice(0, 10) : 'never'}`);
+  await (await db()).run('UPDATE mandates SET name=?, budget_cents=?, per_item_cap_cents=?, categories=?, expires_at=?, max_per_hour=?, max_per_day_cents=?, blocked_sellers=?, allowed_sellers=?, updated_at=? WHERE session_id=?',
+    [name, budget, cap, JSON.stringify(cats), expires, pace, day, JSON.stringify(blocked), JSON.stringify(allowed), now(), sid]);
+  await audit(sid, null, 'mandate.updated', `${more.length ? '[increase confirmed] ' : ''}Budget ${money(budget)}, cap ${money(cap)}, categories: ${cats.join(', ') || 'none'}, pace ${pace ?? 'unlimited'}/h, daily limit ${day === null ? 'none' : money(day)}, blocked sellers: ${blocked.join(', ') || 'none'}, allowed sellers: ${allowed.join(', ') || 'any'}, expires ${expires ? new Date(expires).toISOString().slice(0, 10) : 'never'}`);
   return getMandate(sid);
 }
 
@@ -229,7 +256,7 @@ export async function proposePurchase(sid, { product_id, qty = 1, rationale = ''
       : null;
     // Pace: purchase requests that passed policy in the last hour (blocked/failed ones don't count against the agent).
     const recent = (await t.get("SELECT COUNT(*) AS c FROM purchases WHERE session_id=? AND created_at > ? AND status NOT IN ('blocked','failed')", [sid, now() - 3600_000])).c;
-    const verdict = evaluate(m, product, qty, { stale: product?.stale, committed_cents: m.committed_cents, open_same_product: Boolean(open), now: now(), recent_count: recent });
+    const verdict = evaluate(m, product, qty, { stale: product?.stale, committed_cents: m.committed_cents, day_committed_cents: await daySpentCents(t, sid), open_same_product: Boolean(open), now: now(), recent_count: recent });
     const stamp = now();
     const base = {
       product_id: product?.id ?? String(product_id).slice(0, 64),

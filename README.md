@@ -17,7 +17,7 @@ Give an AI agent a **spending mandate** (budget, per-purchase cap, allowed categ
 Sandbox only: the config refuses to run against anything but the sandbox host.
 
 ## How the AI is used
-A real language model reads what you type and decides *what* to buy by calling tools (`search_products`, `propose_purchase`, `get_mandate`): **Google Gemini** (default when `GEMINI_API_KEY` is set; preferred model first, automatic fallback to other Gemini models on overload/quota) or **Anthropic Claude** (`ANTHROPIC_API_KEY`). The model cannot move money or override rules: `propose_purchase` goes through [src/policy.js](src/policy.js) (expiry, category, duplicate, per-purchase cap, remaining budget including pending reservations, pace). The header badge shows which model is answering. If no AI key is configured, or the model is down, the app says so plainly and buys nothing: there is no scripted stand-in shopper.
+A real language model reads what you type and decides *what* to buy by calling tools (`search_products`, `propose_purchase`, `suggest_mandate_change`, `get_mandate`): **Google Gemini** (default when `GEMINI_API_KEY` is set; preferred model first, automatic fallback to other Gemini models on overload/quota) or **Anthropic Claude** (`ANTHROPIC_API_KEY`). The model cannot move money or override rules: `propose_purchase` goes through [src/policy.js](src/policy.js) (expiry, category, duplicate, per-purchase cap, remaining budget including pending reservations, pace). The header badge shows which model is answering. If no AI key is configured, or the model is down, the app says so plainly and buys nothing: there is no scripted stand-in shopper.
 
 ### Live web shopping (no catalog)
 There is no product catalog. `search_products` works in two stages:
@@ -40,10 +40,16 @@ Mandate is also an **MCP server** (Streamable HTTP at `/mcp`). Issue a token for
 ```bash
 claude mcp add --transport http mandate https://<your-host>/mcp --header "Authorization: Bearer mnd_..."
 ```
-Tools: `search_products`, `propose_purchase`, `get_mandate`. The external agent can only *request* purchases; the policy engine decides, and you approve each one with PayPal in the web UI. The token is stored hashed and can be revoked. The endpoint is tested with the official MCP SDK client (`test/mcp.test.js`).
+Tools: `search_products`, `propose_purchase`, `suggest_mandate_change`, `get_mandate`. The external agent can only *request* purchases; the policy engine decides, and you approve each one with PayPal in the web UI. The token is stored hashed and can be revoked. The endpoint is tested with the official MCP SDK client (`test/mcp.test.js`).
 
 ### The mandate
-Budget, per-purchase cap, allowed categories, **pace limit** (max purchase requests per hour) and optional **expiry**. Checks run in this order: active -> category -> duplicate -> cap -> budget -> pace.
+Budget, per-purchase cap, allowed categories, a rolling **daily limit**, **seller controls** (blocked domains, or an allow-list that permits only those domains), a **pace limit** (max purchase requests per hour) and optional **expiry**. Checks run in this order: active -> category -> seller -> duplicate -> cap -> budget -> daily limit -> pace.
+
+### Finance controls
+- **Seller controls.** Block domains (subdomains included) or allow only a list. The check runs before any money rule and is also shown as `fits mandate` on every search result.
+- **The assistant suggests, you decide.** Ask "raise my budget to $500 and block example.com" and the assistant calls `suggest_mandate_change`. Nothing changes: a card appears on Account with the exact changes, and only you can apply them (tick the acknowledgement). Suggestions are rate limited, superseded by newer ones, validated like any mandate edit, and every step is audited.
+- **Export for finance.** Ledger -> Export purchases / Export audit trail (CSV; `GET /api/export?kind=purchases|audit&format=csv|json`). Cells that could run as spreadsheet formulas are neutralised, and each export is itself audited.
+- See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow and the threat model.
 
 ## Quick start
 

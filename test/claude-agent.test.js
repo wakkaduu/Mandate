@@ -73,7 +73,7 @@ test('Claude tool loop: proposals go through the policy gate; blocked ones never
 
   // request shape: tools declared, system prompt present, every tool_use answered in ONE user message
   const first = requests[0];
-  assert.deepEqual(first.tools.map((t) => t.name), ['search_products', 'propose_purchase', 'get_mandate']);
+  assert.deepEqual(first.tools.map((t) => t.name), ['search_products', 'propose_purchase', 'suggest_mandate_change', 'get_mandate']);
   assert.ok(first.system.includes('MANDATE'));
   const second = requests[1];
   const results = second.messages[second.messages.length - 1].content;

@@ -42,7 +42,7 @@ test('official MCP client: initialize, list tools, search (unavailable w/o key),
   const c = await mcp();
   assert.equal(c.getServerVersion().name, 'mandate');
   const { tools } = await c.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ['get_mandate', 'propose_purchase', 'search_products']);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ['get_mandate', 'propose_purchase', 'search_products', 'suggest_mandate_change']);
   assert.ok(tools.every((t) => t.inputSchema?.type === 'object'));
 
   // No search provider key in this test: web search must fail loudly, not invent products.

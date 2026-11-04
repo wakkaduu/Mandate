@@ -19,6 +19,9 @@ Settings       Appearance, Motion, Layout and content, This device (document sec
 ```
 Hash routes, focus moves to the page heading on navigation.
 
+## Finance controls (added Nov 4)
+Statement terms gain **Daily limit** (with what is used in 24 h) and **Sellers** (Any / N blocked / Only N allowed). The mandate editor gains daily limit, blocked sellers and allowed sellers (one domain per line); loosening any of them uses the same confirmation panel as other increases. **Suggested by the assistant** is a card above the requests with the reason and each change; Review and apply opens a dialog with an acknowledgement. Ledger has CSV export buttons. Search shows examples that usually work and a clearer empty state. The policy checklist on each request now includes Seller and Daily limit.
+
 ## Safety (what the UI asks of the human, and what the server enforces anyway)
 | Decision | UI | Server |
 |---|---|---|

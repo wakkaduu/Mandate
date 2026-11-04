@@ -1,3 +1,5 @@
+> **Superseded by [docs/VIDEO_BRIEF.md](docs/VIDEO_BRIEF.md) and [docs/video/storyboard.json](docs/video/storyboard.json)** (Remotion + ElevenLabs pipeline, vendor-free narration, new scenes). Kept for reference.
+
 # DEMO_SCRIPT - target length 2:45 (hard limit: under 3:00; judges need not watch past 3:00; public on YouTube)
 
 Record the **deployed** app (or localhost) in **PayPal sandbox mode with a real sandbox buyer login**, 1080p, browser window about 1360x900, zoom 100%. No music (copyright rule). No third-party logos other than PayPal's own buttons. Warm the Render URL first (free instances sleep). Before recording: click **Reset demo**, and have the sandbox buyer email/password ready. Rehearse once so no real PayPal account is ever shown.

@@ -422,3 +422,114 @@ test('/api/config feeds the Information page and never exposes secrets', async (
   assert.ok(!/secret|token|api[_-]?key|password/i.test(Object.keys(cfg).join(' ')), 'no secret-looking keys');
   assert.ok(!text.includes(process.env.PAYPAL_CLIENT_SECRET ?? '\u0000never'), 'secret value not present');
 });
+
+// ---------------------------------------------------------------- seller controls, daily limit
+test('seller controls and the daily limit are enforced end to end (fixtures live on shop.example)', async () => {
+  const c = client(app.base);
+  await c.get('/api/state');
+  assert.equal((await c.put('/api/mandate', { blocked_sellers: ['https://www.shop.example/anything'] })).body.mandate.blocked_sellers[0], 'shop.example', 'normalised');
+  const [blocked] = await buy(c, 'mat-desk');
+  assert.equal(blocked.code, 'SELLER_BLOCKED');
+  assert.equal((await c.put('/api/mandate', { blocked_sellers: [] })).status, 409, 'unblocking a seller gives the agent more power: needs confirmation');
+  assert.equal((await c.put('/api/mandate', { blocked_sellers: [], confirm_increase: true })).status, 200);
+
+  assert.equal((await c.put('/api/mandate', { allowed_sellers: ['only-this.com'] })).status, 200, 'restricting is a decrease');
+  assert.equal((await buy(c, 'mat-desk'))[0].code, 'SELLER_NOT_ALLOWED');
+  assert.equal((await c.put('/api/mandate', { allowed_sellers: [] })).status, 409, 'removing the restriction needs confirmation');
+  assert.equal((await c.put('/api/mandate', { allowed_sellers: ['shop.example'] })).status, 409, 'adding a seller to an existing allow-list needs confirmation');
+  assert.equal((await c.put('/api/mandate', { allowed_sellers: [], confirm_increase: true })).status, 200);
+
+  assert.equal((await c.put('/api/mandate', { blocked_sellers: ['not a domain'] })).status, 400);
+  assert.equal((await c.put('/api/mandate', { allowed_sellers: 'x.com' })).status, 400);
+
+  // daily limit: $60 per 24h: the $24 mat fits, the $34 lamp would make it $58 (fits), a third $29 item would not
+  assert.equal((await c.put('/api/mandate', { max_per_day_cents: 6000, per_item_cap_cents: 5000 })).status, 200, 'a new limit (with a lower cap) is a decrease');
+  assert.equal((await c.put('/api/mandate', { max_per_day_cents: 100 })).status, 400, 'must be at least the per-purchase cap');
+  const r = await buy(c, 'mat-desk', 'lamp-aurora', 'kb-basic');
+  assert.deepEqual(r.map((x) => x.allowed), [true, true, false]);
+  assert.equal(r[2].code, 'OVER_DAILY');
+  const s = await state(c);
+  assert.equal(s.mandate.spent_today_cents, 5800);
+  assert.equal((await c.put('/api/mandate', { max_per_day_cents: 9000 })).status, 409, 'raising the daily limit needs confirmation');
+  assert.equal((await c.put('/api/mandate', { max_per_day_cents: null })).status, 409);
+});
+
+// ---------------------------------------------------------------- export
+test('export: CSV and JSON of the purchases and audit trail, spreadsheet-safe, only for the caller', async () => {
+  const c = client(app.base);
+  await buy(c, 'lamp-aurora', 'mon-4k');
+  const csv = await c.raw('GET', '/api/export?kind=purchases&format=csv');
+  assert.equal(csv.status, 200);
+  const res = await fetch(`${app.base}/api/export?kind=purchases&format=csv`, { headers: { cookie: `mandate_sid=${c.sid()}` } });
+  assert.match(res.headers.get('content-type'), /text\/csv/);
+  assert.match(res.headers.get('content-disposition'), /attachment; filename="mandate-purchases-\d{4}-\d{2}-\d{2}\.csv"/);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf], 'UTF-8 BOM so Excel reads it correctly');
+  const text = new TextDecoder('utf-8').decode(bytes.slice(3));
+  const lines = text.trim().split('\r\n');
+  assert.match(lines[0], /^time,purchase_id,item,seller,category,quantity,amount_usd,status/);
+  assert.equal(lines.length, 3);
+  assert.ok(lines.some((l) => /Aurora LED Desk Lamp.*,34\.00,pending/.test(l)));
+  assert.ok(lines.some((l) => /429\.00,blocked,"?OVER_ITEM_CAP/.test(l)));
+
+  const json = await (await fetch(`${app.base}/api/export?kind=audit&format=json`, { headers: { cookie: `mandate_sid=${c.sid()}` } })).json();
+  assert.ok(Array.isArray(json) && json.some((r) => r.event === 'policy.blocked'));
+  assert.equal((await c.get('/api/export?kind=nope')).status, 400);
+  const other = client(app.base); await other.get('/api/state');
+  const empty = await (await fetch(`${app.base}/api/export?kind=purchases&format=json`, { headers: { cookie: `mandate_sid=${other.sid()}` } })).json();
+  assert.deepEqual(empty, [], 'another session sees none of it');
+  assert.ok((await state(c)).audit.some((a) => a.type === 'ledger.exported'), 'exports are themselves audited');
+
+  const { toCsv } = await import('../src/ledger-tools.js');
+  const evil = toCsv([{ a: '=HYPERLINK("http://x")', b: '+1+1', c: '-2', d: '@SUM(A1)', e: 'say "hi", ok', f: 'line\nbreak' }], ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => [k, (r) => r[k]]));
+  assert.ok(evil.includes("'=HYPERLINK"), 'formula cells are neutralised');
+  assert.ok(evil.includes("'+1+1") && evil.includes("'-2") && evil.includes("'@SUM"));
+  assert.ok(evil.includes('"say ""hi"", ok"') && evil.includes('"line\nbreak"'));
+});
+
+// ---------------------------------------------------------------- assistant suggestions the human decides on
+test('the assistant can SUGGEST a limit change, never apply it; applying is a human act that needs acknowledgement', async () => {
+  const c = client(app.base);
+  await c.get('/api/state');
+  const { runTool } = await import('../src/tools.js');
+  const r = await runTool(c.sid(), 'suggest_mandate_change', { budget_usd: 500, add_categories: ['furniture'], block_sellers: ['badshop.com'], reason: 'You asked for a chair.' });
+  assert.equal(r.result.status, 'suggested');
+  assert.match(r.step.text, /you decide/);
+  let s = await state(c);
+  assert.equal(s.mandate.budget_cents, 30000, 'nothing changed');
+  assert.equal(s.proposals.length, 1);
+  assert.deepEqual(s.proposals[0].summary, ['Budget $300.00 → $500.00', 'Allow categories: furniture', 'Block sellers: badshop.com']);
+  assert.ok(s.audit.some((a) => a.type === 'mandate.proposed'));
+  const id = s.proposals[0].id;
+
+  const noAck = await c.post(`/api/proposals/${id}/apply`, {});
+  assert.equal(noAck.status, 409);
+  assert.equal(noAck.body.error.code, 'CONFIRMATION_REQUIRED');
+  assert.equal((await c.post(`/api/proposals/${id}/apply`, { acknowledged: 'yes' })).status, 409);
+  const other = client(app.base); await other.get('/api/state');
+  assert.equal((await other.post(`/api/proposals/${id}/apply`, { acknowledged: true })).status, 404, 'other sessions cannot apply it');
+
+  const ok = await c.post(`/api/proposals/${id}/apply`, { acknowledged: true });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.mandate.budget_cents, 50000);
+  assert.ok(ok.body.mandate.categories.includes('furniture') && ok.body.mandate.blocked_sellers.includes('badshop.com'));
+  assert.equal((await state(c)).proposals.length, 0);
+  assert.equal((await c.post(`/api/proposals/${id}/apply`, { acknowledged: true })).status, 409, 'single use');
+  assert.ok((await state(c)).audit.some((a) => a.type === 'mandate.proposal_applied'));
+
+  // a newer suggestion supersedes an older open one; dismiss works; validation; rate limit
+  await runTool(c.sid(), 'suggest_mandate_change', { budget_usd: 600, reason: 'one' });
+  await runTool(c.sid(), 'suggest_mandate_change', { budget_usd: 700, reason: 'two' });
+  s = await state(c);
+  assert.equal(s.proposals.length, 1);
+  assert.match(s.proposals[0].summary[0], /\$700\.00/);
+  assert.equal((await c.post(`/api/proposals/${s.proposals[0].id}/dismiss`, {})).body.dismissed, true);
+  assert.equal((await state(c)).mandate.budget_cents, 50000);
+  assert.match((await runTool(c.sid(), 'suggest_mandate_change', { budget_usd: -5, reason: 'x' })).result.error, /between \$1 and/);
+  assert.match((await runTool(c.sid(), 'suggest_mandate_change', { reason: 'x' })).result.error, /Nothing to change/);
+  assert.match((await runTool(c.sid(), 'suggest_mandate_change', { budget_usd: 800 })).result.error, /why/);
+  assert.match((await runTool(c.sid(), 'suggest_mandate_change', { add_categories: ['weapons'], reason: 'x' })).result.error, /subset of/);
+  let limited = 0;
+  for (let i = 0; i < 6; i++) if (/Too many/.test((await runTool(c.sid(), 'suggest_mandate_change', { budget_usd: 900 + i, reason: 'spam' })).result.error ?? '')) limited++;
+  assert.ok(limited >= 1, 'suggestions are rate limited');
+});

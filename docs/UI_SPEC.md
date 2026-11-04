@@ -17,10 +17,26 @@ Routing is hash based (`#/overview` ...), so every page is linkable and the back
 Header pills (PayPal / AI), "Connect an agent", "Reset demo", and the 4-step strip on the main page. Their content moved: PayPal/AI/search/hosting facts -> **Information**; the 4 steps -> **How it works**. The MCP server and `/api/connect`, `/api/reset` endpoints still exist; only the buttons are gone.
 
 ## Settings (stored in this browser only; `theme-boot.js` applies them before first paint)
-Appearance: theme (system/light/dark), accent (5), density (comfortable/compact), text size. Motion: system / full / reduced / off (+ preview). Layout: side panel, start page, suggested prompts, open agent activity, "new here?" hint. Reset with Undo. None of it touches the mandate, payments or the server.
+Appearance: theme (system/light/dark), accent (Sky Blue, Midnight, Link Blue, Success Green, Ink), density (comfortable/compact), text size. Motion: system / full / reduced / off (+ preview). Layout: side panel, start page, suggested prompts, open agent activity, "new here?" hint. Reset with Undo. None of it touches the mandate, payments or the server.
+
+## Palette (Nov 4, 2026, from the user's brand palette; guarded by `test/ui-palette.test.js`)
+| Role | Value | Where it is used |
+|---|---|---|
+| Sky Blue | `#60cdff` | Hero accent: primary buttons (Send, Search), user chat bubble, nav badge, step numbers, spent bar, brand mark. **Always with Ink text (11.7:1); white on Sky is 1.8:1 and never used.** |
+| Midnight Blue | `#002991` | Immersive dark section: the Mandate budget card (white text 12.2:1). Also accent *text* on light surfaces (12.2:1) and the active-nav indicator. Dark theme is deeper Midnight shades. |
+| Ink Black | `#000000` | Wordmark and primary text (21:1). White in the dark theme. |
+| Pure White | `#ffffff` | Canvas, cards, sidebar. |
+| Warm Ivory | `#f1efea` | Feature surfaces: "New here?" hint, How-it-works step cards, chat replies, chips, segmented controls, env note. No link text on ivory (Link Blue is 4.2:1 there). |
+| Link Blue | `#0070e0` | Hyperlinks and focus rings in the light theme (4.8:1). Sky in the dark theme. |
+| Success Green | `#007a56` | Positive actions (Request purchase, Save mandate, simulated approve), "ok" tags, checks. White on it 5.4:1. |
+| Error Red | `#c0212b` | Failures: blocked/declined, Dismiss, error toast (white on it 6.0:1). |
+| Gold `#ffd140` (legacy) | | Only the "awaiting approval" stripes on the Midnight card and warning tints; text on those tints is `#7a5200` (6.2:1). |
+| Pay Blue `#00457C`, Pal Blue `#0079C1` (legacy) | | Not used. |
+
+Settings accent choices are Sky Blue (default), Midnight, Link Blue, Success Green and Ink; each declares its own text-on-accent color. Dark theme lifts Midnight to `#2b5fe0` for buttons so they stay visible, and uses Sky for links/focus.
 
 ## Tokens
-Semantic CSS variables in `public/styles.css` (`--surface`, `--ink`, `--muted`, `--line`, `--accent*`, `--ok/--warn/--bad`, `--pad`, `--gap`, motion `--t*`, `--move`). Light/dark and 5 accents; white-on-accent >= 4.5:1 in both themes. AG Grid reads the same variables.
+Semantic CSS variables in `public/styles.css` (`--surface`, `--ink`, `--muted`, `--line`, `--link`, `--focus`, `--accent*`, `--ok/--warn/--bad`, `--hero*`, `--pad`, `--gap`, motion `--t*`, `--move`). AG Grid reads the same variables.
 
 ## Motion rules
 Page change: 220-420 ms fade + 10 px rise. New chat replies / search cards / recent items rise in; **cards that contain PayPal's buttons only fade** (no transform near the SDK iframe). Budget bar and remaining amount animate; pending-budget stripes move (full motion only). `reduced`: no movement, short fades. `off`: every animation and transition 0 ms. "System" follows `prefers-reduced-motion`.
@@ -36,4 +52,6 @@ Skip link; landmarks (`nav`, `main`, `aside`, `header`); `aria-current="page"`; 
 
 ## Open questions
 - Should MCP token issuing return to the UI (e.g. Information → Agent access)? Currently console/API only.
+- PayPal's SDK button stays PayPal's default gold (`color: 'gold'` is one of the SDK's own options). The refreshed brand de-emphasises gold, but changing the button color is PayPal's call, not ours; if you want a different official option (blue/black/white) it is a one-word change, and I'd confirm it against PayPal's button guidelines first.
 - Dark-mode PayPal button container shows PayPal's own light corners; it is PayPal's iframe, so we leave it alone.
+- Using PayPal's colors can read as affiliation. Mitigations in place: our own wordmark and mark, no PayPal logo, and the footer line 'PayPal Sandbox: no real money'. Consider adding 'Not affiliated with PayPal' to the Devpost text.

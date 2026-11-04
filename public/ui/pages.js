@@ -4,8 +4,9 @@ import { icon } from './icons.js';
 import { OPTIONS, DEFAULTS, getPrefs, setPref, setAll, onPrefs } from './prefs.js';
 
 // ------------------------------------------------------------------ Settings
+// [label, swatch color, check-mark color]: the check must contrast with its swatch (white on Sky Blue would be 1.8:1)
 const ACCENTS = {
-  indigo: ['Indigo', '#4f46e5'], blue: ['Blue', '#1d4ed8'], teal: ['Teal', '#0f766e'], violet: ['Violet', '#7c3aed'], rose: ['Rose', '#be123c'],
+  sky: ['Sky Blue', '#60cdff', '#000000'], midnight: ['Midnight', '#002991', '#ffffff'], blue: ['Link Blue', '#0070e0', '#ffffff'], green: ['Success Green', '#007a56', '#ffffff'], ink: ['Ink', '#000000', '#ffffff'],
 };
 const LABELS = {
   theme: { system: 'System', light: 'Light', dark: 'Dark' },
@@ -43,7 +44,7 @@ function swatches(labelId) {
   const el = h('div', { class: 'swatches', role: 'radiogroup', 'aria-labelledby': `${labelId}-label` },
     OPTIONS.accent.map((v) => h('label', { class: 'swatch', title: ACCENTS[v][0] },
       h('input', { type: 'radio', name: 'pref-accent', value: v, 'aria-label': ACCENTS[v][0], onchange: () => setPref('accent', v) }),
-      h('span', { style: `--sw:${ACCENTS[v][1]}` }, icon('check', { size: 16 })))));
+      h('span', { style: `--sw:${ACCENTS[v][1]};--sw-ink:${ACCENTS[v][2]}` }, icon('check', { size: 16 })))));
   syncers.push(() => el.querySelectorAll('input').forEach((i) => { i.checked = i.value === getPrefs().accent; }));
   return el;
 }

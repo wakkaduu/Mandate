@@ -42,6 +42,7 @@ test('no innerHTML / document.write in UI code; PayPal buttons are not restyled'
   const css = read('styles.css');
   assert.ok(!/\.pp-slot[^{]*\{[^}]*(filter|transform|zoom|opacity)/.test(css), 'no visual effects on the PayPal button slot');
   assert.ok(!/paypal-button|zoid/.test(css), 'no selectors reaching into the PayPal SDK');
+  assert.ok(!/gold/i.test(read('app.js').replace(/color: 'gold'/, '')), 'only the SDK option color: gold remains in app.js');
 });
 
 test('preferences: every option list has a default and the boot script exposes them', () => {

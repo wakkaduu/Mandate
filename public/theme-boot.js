@@ -5,7 +5,7 @@
   const KEY = 'mandate.prefs.v1';
   const OPTIONS = {
     theme: ['system', 'light', 'dark'],
-    accent: ['indigo', 'blue', 'teal', 'violet', 'rose'],
+    accent: ['sky', 'midnight', 'blue', 'green', 'ink'],
     density: ['comfortable', 'compact'],
     text: ['default', 'large'],
     motion: ['system', 'full', 'reduced', 'off'],
@@ -13,7 +13,7 @@
     startPage: ['overview', 'search', 'ledger'],
   };
   const DEFAULTS = {
-    theme: 'system', accent: 'indigo', density: 'comfortable', text: 'default', motion: 'system', sidebar: 'expanded', startPage: 'overview',
+    theme: 'system', accent: 'sky', density: 'comfortable', text: 'default', motion: 'system', sidebar: 'expanded', startPage: 'overview',
     showChips: true, traceOpen: false, showHint: true, hintDismissed: false,
   };
   const BOOLS = ['showChips', 'traceOpen', 'showHint', 'hintDismissed'];

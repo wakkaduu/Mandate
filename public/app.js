@@ -73,7 +73,7 @@ async function renderPayPalButtons(p, slot) {
   if (cfg.paypalMode === 'mock') {
     slot.append(
       h('div', { class: 'actions' },
-        h('button', { class: 'btn primary', onclick: () => mockApprove(p, 'ok') }, 'Approve with PayPal (simulated)'),
+        h('button', { class: 'btn positive', onclick: () => mockApprove(p, 'ok') }, 'Approve with PayPal (simulated)'),
         h('button', { class: 'btn ghost', onclick: () => mockApprove(p, 'decline') }, 'Simulate declined card'),
       ),
       h('div', { class: 'pmeta' }, 'Offline PayPal simulator - real sandbox buttons appear when PAYPAL_MODE=sandbox.'),
@@ -429,7 +429,7 @@ function renderResults(offers, skipped) {
       h('span', { class: `tag ${o.price_verified ? 'ok' : 'warn'}` }, o.price_verified ? 'price verified' : 'price unverified'),
       h('span', { class: `tag ${o.fits_mandate ? 'ok' : 'warn'}`, title: o.mandate_issue || 'Within your mandate' }, o.fits_mandate ? 'fits mandate' : 'outside mandate')),
     o.mandate_issue ? h('div', { class: 'pmeta' }, o.mandate_issue.replace(/^[A-Z_]+: /, '')) : null,
-    h('div', { class: 'actions' }, h('button', { class: 'btn small primary', type: 'button', onclick: (e) => requestOffer(o, e.currentTarget) }, 'Request purchase')),
+    h('div', { class: 'actions' }, h('button', { class: 'btn small positive', type: 'button', onclick: (e) => requestOffer(o, e.currentTarget) }, 'Request purchase')),
   ));
   if (skipped) cards.push(h('div', { class: 'muted' }, skipped));
   box.replaceChildren(...cards);

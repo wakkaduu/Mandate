@@ -262,3 +262,16 @@ test('manual search + request: validated input, unavailable search is a clean 50
   const st = await state(c);
   assert.match(st.purchases.find((p) => p.product_id === 'lamp-aurora').rationale, /Requested by you/);
 });
+
+// ---------------------------------------------------------------- Information page data
+test('/api/config feeds the Information page and never exposes secrets', async () => {
+  const cfg = (await client(app.base).get('/api/config')).body;
+  for (const k of ['paypalMode', 'paypalConfigured', 'currency', 'agentMode', 'webSearch', 'searchProviders', 'models', 'strictPrices', 'searchCacheMinutes', 'searchesPerDay', 'persistent', 'host', 'version', 'mcpPath']) {
+    assert.ok(k in cfg, `config.${k}`);
+  }
+  assert.equal(cfg.strictPrices, true);
+  assert.match(cfg.version, /^\d+\.\d+\.\d+/);
+  const text = JSON.stringify(cfg);
+  assert.ok(!/secret|token|api[_-]?key|password/i.test(Object.keys(cfg).join(' ')), 'no secret-looking keys');
+  assert.ok(!text.includes(process.env.PAYPAL_CLIENT_SECRET ?? '\u0000never'), 'secret value not present');
+});

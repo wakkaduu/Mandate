@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'node:path';
+import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { config, paypalConfigured, searchProviders } from './config.js';
@@ -14,6 +15,7 @@ import { createMcpRouter } from './mcp.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const COOKIE = 'mandate_sid';
+const appVersion = (() => { try { return JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version; } catch { return null; } })();
 
 function parseCookies(header = '') {
   return Object.fromEntries(header.split(';').map((c) => c.trim().split('=')).filter((p) => p.length === 2).map(([k, v]) => [k, decodeURIComponent(v)]));
@@ -120,6 +122,12 @@ export function createApp() {
       agentMode: agentMode(),
       webSearch: searchProviders().length > 0,
       searchProviders: searchProviders(),
+      models: config.gemini.models,
+      strictPrices: !config.web.allowUnverifiedPrices,
+      searchCacheMinutes: Math.round(config.web.searchCacheMs / 60_000),
+      searchesPerDay: config.web.searchesPerDay,
+      mcpPath: '/mcp',
+      version: appVersion,
       model: agentModel(),
       webhooks: Boolean(config.paypal.webhookId),
       persistent: config.dbPersistent,

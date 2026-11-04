@@ -29,7 +29,7 @@ Only verified results become *offers*. `propose_purchase` takes an `offer_id`, s
 **Search yourself.** The UI also has a "Search the web yourself" panel (`POST /api/search`, `POST /api/offers/:id/request`): the human searches, sees each offer's `fits mandate` flag and price-verified tag, and requests a purchase. It uses the same offers, policy gate and PayPal approval, so the app stays usable when the AI model is rate-limited. Identical searches are cached for 30 minutes and real provider searches are capped per day (`WEB_SEARCHES_PER_DAY`), which protects the free-tier search quotas; several searches in one model turn run concurrently.
 
 ### Bring your own agent (MCP)
-Mandate is also an **MCP server** (Streamable HTTP at `/mcp`). Click **Connect an agent**, generate a token, and any MCP client can use the same rails:
+Mandate is also an **MCP server** (Streamable HTTP at `/mcp`). Issue a token for your session (the UI has no button for it; the endpoint is listed under **Information → Agent access**): open the app, then in the browser console run `await (await fetch('/api/connect', { method: 'POST' })).json()` (the token is shown once; `DELETE /api/connect` revokes it). Any MCP client can then use the same rails:
 ```bash
 claude mcp add --transport http mandate https://<your-host>/mcp --header "Authorization: Bearer mnd_..."
 ```

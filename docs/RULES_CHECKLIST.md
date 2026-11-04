@@ -27,7 +27,7 @@ Source: *PayPal AI Hackathon Official Rules* (Devpost). Submission period: **Oct
 
 ## Criteria map (Stage 2, equally weighted)
 - **Technological Implementation:** server-side Orders v2 with idempotency + unique invoice ids, capture verification, refunds, signed webhooks, atomic budget reservations, Gemini/Claude tool loop over live web search with server-side price verification (SSRF-hardened page fetch, server-assigned categories, mandate pre-check), MCP server (conformance-tested with the official SDK client), a search-it-yourself path that works without the AI, 49 automated tests.
-- **Design:** a four-step "how it works" strip, live budget bar, per-purchase policy checklists, agent-activity trace, full state coverage (blocked/declined/cancelled/expired/refunded), responsive and keyboard-friendly.
+- **Design:** a side-panel app shell with an optional "How it works" page, Settings (theme, accent, density, text size, motion) and Information pages, live budget bar, per-purchase policy checklists, agent-activity trace, full state coverage (blocked/declined/cancelled/expired/refunded), responsive and keyboard-friendly.
 - **Potential Impact:** a specific problem (letting agents spend without handing them a card) for a real audience (anyone deploying shopping/procurement agents), with PayPal as the consent and settlement layer.
 - **Innovation:** policy-gated delegated spending plus an MCP surface so any agent can use the same rails.
 - **Presentation:** `DEMO_SCRIPT.md` (end-to-end flow, under 3 minutes) and `SUBMISSION.md`.
